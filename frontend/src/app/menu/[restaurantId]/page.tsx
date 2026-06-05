@@ -1082,7 +1082,7 @@ function CustomerMenuContent() {
                     <h3 className="font-bold text-lg text-white mb-1">{item.name}</h3>
                     <p className="font-semibold text-gray-300">
                       {item.variants && item.variants.length > 0
-                        ? `From ${item.variants.reduce((min, v) => {
+                        ? `From ${item.variants.reduce((min: { name: string; price: string }, v: { name: string; price: string }) => {
                             const minNum = parseInt(String(min.price).replace(/[^0-9]/g, ''), 10) || Infinity;
                             const vNum = parseInt(String(v.price).replace(/[^0-9]/g, ''), 10) || Infinity;
                             return vNum < minNum ? v : min;
