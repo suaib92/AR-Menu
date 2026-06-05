@@ -103,13 +103,6 @@ export default function FoodViewer3D({ imageSrc }: FoodViewer3DProps) {
           dampingFactor={0.05}
         />
       </Canvas>
-      
-      {/* Overlay hint */}
-      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 bg-black/60 backdrop-blur-md rounded-full border border-white/10 pointer-events-none">
-        <p className="text-white/80 text-xs font-medium flex items-center gap-2">
-          👆 Swipe to interact
-        </p>
-      </div>
     </div>
   );
 }
