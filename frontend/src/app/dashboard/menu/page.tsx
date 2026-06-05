@@ -408,21 +408,26 @@ export default function MenuManagementPage() {
       <AnimatePresence>
         {isAddModalOpen && (
           <>
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/80 backdrop-blur-sm z-40"
+              className="fixed inset-0 bg-black/40 backdrop-blur-2xl z-40"
               onClick={() => setIsAddModalOpen(false)}
             />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg bg-[#111] border border-white/10 rounded-3xl p-8 z-50 shadow-2xl max-h-[90vh] overflow-y-auto"
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 30, stiffness: 280 }}
+              className="fixed bottom-0 left-0 right-0 md:bottom-6 md:left-1/2 md:right-auto md:-translate-x-1/2 w-full md:max-w-lg bg-zinc-900/70 backdrop-blur-xl border border-white/10 rounded-t-3xl md:rounded-3xl shadow-[0_-12px_40px_rgba(0,0,0,0.5)] z-50 max-h-[92vh] overflow-y-auto overscroll-contain pb-[env(safe-area-inset-bottom)]"
             >
-              <div className="flex justify-between items-center mb-6">
+              <div className="md:hidden mx-auto mt-2 mb-1 h-1.5 w-12 rounded-full bg-white/20" />
+              <div className="flex justify-between items-center px-8 pt-2 md:pt-8 mb-6">
                 <h2 className="text-2xl font-bold">{editingItem ? 'Edit Menu Item' : 'Add Menu Item'}</h2>
                 <button onClick={() => setIsAddModalOpen(false)} className="text-gray-400 hover:text-white">
                   <X className="w-6 h-6" />
                 </button>
               </div>
+              <div className="px-8 pb-8">
 
               <form onSubmit={handleSubmit} className="space-y-4">
                 {/* AI Food Analyzer (Moved to top) */}
@@ -617,6 +622,7 @@ export default function MenuManagementPage() {
                 </button>
 
               </form>
+              </div>
             </motion.div>
           </>
         )}
