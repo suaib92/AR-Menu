@@ -27,25 +27,40 @@ type Trend = { pct: number | null; direction: 'up' | 'down' | 'neutral' };
 type DayPoint = { label: string; revenue: number; ar: number };
 
 type Overview = {
-  totalRevenue: number;
-  todayRevenue: number;
-  yesterdayRevenue: number;
-  revenueTrend: Trend;
-  arViewsToday: number;
-  arViewsYesterday: number;
-  arTrend: Trend;
-  qrScansToday: number;
-  qrScansYesterday: number;
-  qrTrend: Trend;
-  orderCountToday: number;
-  revenueChart: DayPoint[];
-  arChart: DayPoint[];
+  revenue: {
+    today: number;
+    yesterday: number;
+    trendPct: number | null;
+    trend7dPct: number | null;
+    last7Total: number;
+  };
+  arViews: {
+    today: number;
+    yesterday: number;
+    trendPct: number | null;
+  };
+  qrCodes: {
+    active: number;
+    total: number;
+  };
+  charts: {
+    revenue: { day: string; revenue: number }[];
+    ar: { day: string; views: number }[];
+  };
+  recentOrders: unknown[];
 };
 
 const formatTrend = (t: Trend): string => {
   if (t.pct === null) return '—';
   const sign = t.direction === 'up' ? '+' : t.direction === 'down' ? '−' : '';
   return `${sign}${Math.abs(t.pct).toFixed(1)}%`;
+};
+
+const pctToTrend = (pct: number | null | undefined): Trend => {
+  if (pct === null || pct === undefined) return { pct: null, direction: 'neutral' };
+  if (pct > 0) return { pct, direction: 'up' };
+  if (pct < 0) return { pct, direction: 'down' };
+  return { pct: 0, direction: 'neutral' };
 };
 
 const TrendIcon = ({ t }: { t: Trend }) => {
@@ -121,9 +136,9 @@ export default function DashboardPage() {
   const stats = [
     {
       name: 'Total Revenue (7d)',
-      value: `₹${(overview?.totalRevenue ?? 0).toLocaleString('en-IN')}`,
+      value: `₹${(overview?.revenue.last7Total ?? 0).toLocaleString('en-IN')}`,
       icon: IndianRupee,
-      trend: overview?.revenueTrend ?? { pct: null, direction: 'neutral' as const },
+      trend: pctToTrend(overview?.revenue.trend7dPct ?? null),
     },
     {
       name: 'Active Menu Items',
@@ -133,15 +148,15 @@ export default function DashboardPage() {
     },
     {
       name: 'AR Views Today',
-      value: (overview?.arViewsToday ?? 0).toLocaleString('en-IN'),
+      value: (overview?.arViews.today ?? 0).toLocaleString('en-IN'),
       icon: ScanEye,
-      trend: overview?.arTrend ?? { pct: null, direction: 'neutral' as const },
+      trend: pctToTrend(overview?.arViews.trendPct ?? null),
     },
     {
-      name: 'QR Scans Today',
-      value: (overview?.qrScansToday ?? 0).toLocaleString('en-IN'),
+      name: 'Active QR Codes',
+      value: (overview?.qrCodes.active ?? 0).toLocaleString('en-IN'),
       icon: QrCode,
-      trend: overview?.qrTrend ?? { pct: null, direction: 'neutral' as const },
+      trend: { pct: null, direction: 'neutral' as const },
     },
   ];
 
@@ -196,13 +211,13 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold">Revenue — Last 7 Days</h3>
             <span className="text-xs text-gray-400">
-              Today: ₹{(overview?.todayRevenue ?? 0).toLocaleString('en-IN')}
+              Today: ₹{(overview?.revenue.today ?? 0).toLocaleString('en-IN')}
             </span>
           </div>
           <div className="flex-1 rounded-xl bg-white/[0.02] border border-white/5 p-2">
-            {overview && overview.revenueChart.some((d) => d.revenue > 0) ? (
+            {overview && overview.charts.revenue.some((d) => d.revenue > 0) ? (
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={overview.revenueChart} margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
+                <AreaChart data={overview.charts.revenue} margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="rev" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor="#a855f7" stopOpacity={0.5} />
