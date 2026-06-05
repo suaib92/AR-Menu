@@ -30,15 +30,21 @@ import {
 import { getApiUrl } from '@/utils/api';
 
 type AdminOverview = {
-  totalRestaurants: number;
-  activeRestaurants: number;
-  restaurantsTrend: { pct: number | null; direction: 'up' | 'down' | 'neutral' };
-  totalUsers: number;
-  totalOrders: number;
-  todayOrders: number;
-  yesterdayOrders: number;
-  ordersTrend: { pct: number | null; direction: 'up' | 'down' | 'neutral' };
-  totalRevenue: number;
+  kpi: {
+    mrr: number;
+    mrrTrendPct: number | null;
+    activeRestaurants: number;
+    activeRestaurantsTrendPct: number | null;
+    totalRestaurants: number;
+    totalUsers: number;
+    totalOrders: number;
+    todayOrders: number;
+    yesterdayOrders?: number;
+    ordersTrendPct: number | null;
+    platformRevenueAllTime: number;
+    platformRevenueLast7: number;
+    platformRevenueTrend7d: number | null;
+  };
   recentRestaurants: {
     _id: string;
     name: string;
@@ -47,8 +53,8 @@ type AdminOverview = {
     isActive: boolean;
     createdAt: string;
   }[];
+  charts: { orderVolume: { day: string; orders: number }[] };
   planDistribution: { plan: string; count: number }[];
-  orderChart: { label: string; orders: number; revenue: number }[];
 };
 
 const PLAN_COLOR: Record<string, string> = {
@@ -62,13 +68,20 @@ const PLAN_COLOR: Record<string, string> = {
   enterprise: '#22c55e',
 };
 
-const formatTrend = (t: AdminOverview['restaurantsTrend']): string => {
+const formatTrend = (t: { pct: number | null; direction: 'up' | 'down' | 'neutral' }): string => {
   if (t.pct === null) return '—';
   const sign = t.direction === 'up' ? '+' : t.direction === 'down' ? '−' : '';
   return `${sign}${Math.abs(t.pct).toFixed(1)}%`;
 };
 
-const TrendPill = ({ t }: { t: AdminOverview['restaurantsTrend'] }) => {
+const pctToTrend = (pct: number | null | undefined) => {
+  if (pct === null || pct === undefined) return { pct: null, direction: 'neutral' as const };
+  if (pct > 0) return { pct, direction: 'up' as const };
+  if (pct < 0) return { pct, direction: 'down' as const };
+  return { pct: 0, direction: 'neutral' as const };
+};
+
+const TrendPill = ({ t }: { t: { pct: number | null; direction: 'up' | 'down' | 'neutral' } }) => {
   const color =
     t.direction === 'up'
       ? 'text-green-400 bg-green-500/10'
@@ -124,39 +137,39 @@ export default function AdminPage() {
 
   const kpis = [
     {
-      name: 'Platform Revenue (30d)',
-      value: `₹${(data?.totalRevenue ?? 0).toLocaleString('en-IN')}`,
+      name: 'MRR (₹999 × active)',
+      value: `₹${(data?.kpi.mrr ?? 0).toLocaleString('en-IN')}`,
       icon: IndianRupee,
-      trend: null as AdminOverview['restaurantsTrend'] | null,
+      trend: pctToTrend(data?.kpi.mrrTrendPct ?? null),
       color: 'text-emerald-400 bg-emerald-500/10',
     },
     {
       name: 'Restaurants',
-      value: (data?.totalRestaurants ?? 0).toLocaleString('en-IN'),
-      sub: `${data?.activeRestaurants ?? 0} active`,
+      value: (data?.kpi.totalRestaurants ?? 0).toLocaleString('en-IN'),
+      sub: `${data?.kpi.activeRestaurants ?? 0} active`,
       icon: Building2,
-      trend: data?.restaurantsTrend ?? null,
+      trend: pctToTrend(data?.kpi.activeRestaurantsTrendPct ?? null),
       color: 'text-blue-400 bg-blue-500/10',
     },
     {
       name: 'Total Users',
-      value: (data?.totalUsers ?? 0).toLocaleString('en-IN'),
+      value: (data?.kpi.totalUsers ?? 0).toLocaleString('en-IN'),
       icon: Users,
       trend: null,
       color: 'text-purple-400 bg-purple-500/10',
     },
     {
       name: 'Orders Today',
-      value: (data?.todayOrders ?? 0).toLocaleString('en-IN'),
-      sub: `${(data?.totalOrders ?? 0).toLocaleString('en-IN')} all-time`,
+      value: (data?.kpi.todayOrders ?? 0).toLocaleString('en-IN'),
+      sub: `${(data?.kpi.totalOrders ?? 0).toLocaleString('en-IN')} all-time`,
       icon: ShoppingBag,
-      trend: data?.ordersTrend ?? null,
+      trend: pctToTrend(data?.kpi.ordersTrendPct ?? null),
       color: 'text-orange-400 bg-orange-500/10',
     },
   ];
 
   const hasOrderData =
-    data && data.orderChart.some((d) => d.orders > 0 || d.revenue > 0);
+    data?.charts?.orderVolume?.some?.((d) => d.orders > 0) ?? false;
 
   return (
     <div className="space-y-6 sm:space-y-8">
@@ -210,14 +223,14 @@ export default function AdminPage() {
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-semibold text-sm sm:text-base">Orders — Last 7 Days</h3>
             <span className="text-xs text-gray-400">
-              {data?.todayOrders ?? 0} today · {data?.yesterdayOrders ?? 0} yesterday
+              {data?.kpi.todayOrders ?? 0} today
             </span>
           </div>
           <div className="flex-1 rounded-xl bg-white/[0.02] border border-white/5 p-2">
             {hasOrderData ? (
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart
-                  data={data!.orderChart}
+                  data={data!.charts.orderVolume}
                   margin={{ top: 10, right: 8, left: 0, bottom: 0 }}
                 >
                   <defs>
@@ -228,7 +241,7 @@ export default function AdminPage() {
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
                   <XAxis
-                    dataKey="label"
+                    dataKey="day"
                     tick={{ fill: '#9ca3af', fontSize: 11 }}
                     axisLine={false}
                     tickLine={false}
@@ -246,7 +259,7 @@ export default function AdminPage() {
                       borderRadius: 8,
                       color: '#fff',
                     }}
-                    formatter={(v, n) => [v, n === 'orders' ? 'Orders' : 'Revenue ₹']}
+                    formatter={(v) => [v, 'Orders']}
                   />
                   <Area
                     type="monotone"
@@ -276,7 +289,7 @@ export default function AdminPage() {
             <h3 className="font-semibold text-sm sm:text-base">Plan Distribution</h3>
           </div>
           <div className="flex-1 rounded-xl bg-white/[0.02] border border-white/5 p-2">
-            {data && data.planDistribution.some((p) => p.count > 0) ? (
+            {data?.planDistribution?.some?.((p) => p.count > 0) ? (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie

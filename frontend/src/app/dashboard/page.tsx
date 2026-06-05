@@ -215,7 +215,7 @@ export default function DashboardPage() {
             </span>
           </div>
           <div className="flex-1 rounded-xl bg-white/[0.02] border border-white/5 p-2">
-            {overview && overview.charts.revenue.some((d) => d.revenue > 0) ? (
+            {overview?.charts?.revenue?.some?.((d) => d.revenue > 0) ? (
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={overview.charts.revenue} margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
                   <defs>
