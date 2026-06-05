@@ -2,6 +2,8 @@ import { Request, Response } from 'express';
 import fs from 'fs';
 import { uploadToCloudinary } from '../utils/cloudinary';
 
+const MISSING_KEY_MESSAGE = 'AI menu analysis is temporarily unavailable. Please contact your administrator.';
+
 /**
  * @desc    Analyze food photo and extract structured menu details
  *          Also generates a professional 4K 9:16 food mockup image using Gemini
@@ -17,8 +19,12 @@ export const analyzeFood = async (req: Request, res: Response) => {
   const imagePath = req.file.path;
 
   try {
-    if (!process.env.NVIDIA_API_KEY) {
-      throw new Error('NVIDIA_API_KEY is not set in .env');
+    const apiKey = process.env.NVIDIA_API_KEY;
+    if (!apiKey) {
+      console.error('[analyze-food] NVIDIA_API_KEY is not configured on the server');
+      if (fs.existsSync(imagePath)) fs.unlinkSync(imagePath);
+      res.status(503).json({ message: MISSING_KEY_MESSAGE, code: 'AI_NOT_CONFIGURED' });
+      return;
     }
 
     // Read original image as base64
@@ -26,8 +32,8 @@ export const analyzeFood = async (req: Request, res: Response) => {
     const base64Data = fileBytes.toString('base64');
     const mimeType = req.file.mimetype || 'image/jpeg';
 
-    // Note: Gemini's Imagen model is only available on paid plans, so we cannot use it to 
-    // generate a new 4K image on the free tier. Instead, we rely on Cloudinary's powerful 
+    // Note: Gemini's Imagen model is only available on paid plans, so we cannot use it to
+    // generate a new 4K image on the free tier. Instead, we rely on Cloudinary's powerful
     // transformation API later to upscale, crop to 9:16, and auto-enhance the original photo.
 
     // ─── PROMPT: Extract Menu Details ─────────────────────────────────────
@@ -45,11 +51,6 @@ Analyze this food image and output a JSON object with the following fields:
 - variants: (Optional) An array of objects [{ name: "Small", price: "₹199" }, { name: "Large", price: "₹399" }]. ONLY include this if the dish typically comes in multiple sizes (like Pizza, Coffee, Fries, etc). Otherwise, leave it out or empty.
 
 Output ONLY raw valid JSON. Do NOT include markdown code blocks like \`\`\`json. Return only the JSON object.`;
-
-    const apiKey = process.env.NVIDIA_API_KEY;
-    if (!apiKey) {
-      throw new Error('NVIDIA_API_KEY is not set in .env');
-    }
 
     const aiResponse = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
       method: 'POST',
@@ -74,9 +75,15 @@ Output ONLY raw valid JSON. Do NOT include markdown code blocks like \`\`\`json.
     });
 
     if (!aiResponse.ok) {
-      const err = await aiResponse.text();
-      console.error('NVIDIA API Error:', err);
-      throw new Error('NVIDIA API request failed');
+      const errText = await aiResponse.text();
+      console.error('[analyze-food] NVIDIA API error', aiResponse.status, errText);
+      if (fs.existsSync(imagePath)) fs.unlinkSync(imagePath);
+      const status = aiResponse.status === 429 ? 429 : 502;
+      const message = aiResponse.status === 429
+        ? 'AI service is busy. Please try again in a moment.'
+        : 'AI service returned an error. Please try again.';
+      res.status(status).json({ message, code: 'AI_UPSTREAM_ERROR' });
+      return;
     }
 
     const aiData = await aiResponse.json();
@@ -87,8 +94,9 @@ Output ONLY raw valid JSON. Do NOT include markdown code blocks like \`\`\`json.
     try {
       result = JSON.parse(rawText);
     } catch {
-      console.error('Gemini returned invalid JSON:', rawText);
-      res.status(422).json({ message: 'AI returned invalid response format. Please try again.' });
+      console.error('[analyze-food] NVIDIA returned invalid JSON:', rawText);
+      if (fs.existsSync(imagePath)) fs.unlinkSync(imagePath);
+      res.status(422).json({ message: 'AI returned invalid response format. Please try again.', code: 'AI_INVALID_FORMAT' });
       return;
     }
 
@@ -97,7 +105,7 @@ Output ONLY raw valid JSON. Do NOT include markdown code blocks like \`\`\`json.
     // Upload the original image to Cloudinary (no forced cropping or weird sharpening)
     console.log('📤 Uploading original image to Cloudinary...');
     const cloudinaryUrl = await uploadToCloudinary(imagePath);
-    
+
     // Attach the generated image URL to the result
     result.imageUrl = cloudinaryUrl;
 
@@ -109,9 +117,9 @@ Output ONLY raw valid JSON. Do NOT include markdown code blocks like \`\`\`json.
     res.json(result);
 
   } catch (error: any) {
-    console.error('Gemini Analysis Error:', error.message || error);
+    console.error('[analyze-food] unexpected error:', error.message || error);
     // Clean up temp file on error
     if (fs.existsSync(imagePath)) fs.unlinkSync(imagePath);
-    res.status(500).json({ message: error.message || 'Failed to analyze image' });
+    res.status(500).json({ message: 'Failed to analyze image. Please try again.' });
   }
 };

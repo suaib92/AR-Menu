@@ -140,7 +140,7 @@ export default function MenuManagementPage() {
 
       if (res.ok) {
         const data = await res.json();
-        
+
         // Auto-fill form
         setFormData(prev => ({
           ...prev,
@@ -153,11 +153,17 @@ export default function MenuManagementPage() {
           imageUrl: data.imageUrl || prev.imageUrl,
           variants: data.variants || prev.variants
         }));
-        
+
         toast.success('Menu item auto-filled by AI!');
       } else {
-        const err = await res.json();
-        toast.error(err.message || 'AI analysis failed. Try again.');
+        const err = await res.json().catch(() => ({ message: 'AI analysis failed. Try again.' }));
+        if (err.code === 'AI_NOT_CONFIGURED') {
+          toast.error('AI menu analysis is not configured on the server. Add a photo manually below.', { duration: 6000 });
+        } else if (err.code === 'AI_UPSTREAM_ERROR' && res.status === 429) {
+          toast.error('AI service is busy. Please try again in a moment.');
+        } else {
+          toast.error(err.message || 'AI analysis failed. Try again.');
+        }
       }
     } catch (err) {
       toast.error('Connection error. Is the backend running?');
