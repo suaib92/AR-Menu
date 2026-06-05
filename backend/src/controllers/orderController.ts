@@ -1,66 +1,80 @@
 import { Request, Response, NextFunction } from 'express';
-import webpush from 'web-push';
+import mongoose from 'mongoose';
 import Order from '../models/Order';
-import PushSubscription from '../models/PushSubscription';
+import Ticket from '../models/Ticket';
 import { AuthRequest } from '../middleware/auth';
-
-const vapidContact = process.env.VAPID_CONTACT || 'mailto:admin@example.com';
-
-if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
-  webpush.setVapidDetails(
-    vapidContact,
-    process.env.VAPID_PUBLIC_KEY,
-    process.env.VAPID_PRIVATE_KEY
-  );
-}
-
-const sendPushNotification = async (restaurantId: string, payload: unknown) => {
-  try {
-    const subscriptions = await PushSubscription.find({ restaurantId });
-    if (subscriptions.length === 0) return;
-
-    await Promise.all(
-      subscriptions.map((sub) =>
-        webpush
-          .sendNotification(
-            { endpoint: sub.endpoint, keys: sub.keys },
-            JSON.stringify(payload)
-          )
-          .catch(async (err: { statusCode?: number }) => {
-            if (err.statusCode === 404 || err.statusCode === 410) {
-              await PushSubscription.findByIdAndDelete(sub._id);
-            }
-          })
-      )
-    );
-  } catch (error) {
-    console.error('Error sending push notifications:', error);
-  }
-};
 
 // @desc    Create new order
 // @route   POST /api/orders
 // @access  Public
+//
+// Tickets model:
+// - A Ticket is a per-table bill. One OPEN ticket per (restaurant, table).
+// - First order at a table creates the ticket (primaryName = first customer).
+// - Subsequent orders from the same table APPEND to the existing ticket.
+// - "Switch table" UX (frontend) simply means customer enters a different
+//   table number, which triggers a new ticket because (restaurant, table) is new.
+// - If the frontend sends a `sessionId`, we record it on the ticket so the
+//   customer's QR scan is linked to the bill.
 export const createOrder = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { restaurantId, tableNumber, customerName, items, totalAmount } = req.body;
+    const { restaurantId, tableNumber, customerName, items, totalAmount, sessionId } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(restaurantId)) {
+      // Silently drop invalid ObjectIds (keep parity with analytics track endpoint)
+      res.status(202).json({ skipped: true, reason: 'invalid restaurantId' });
+      return;
+    }
+
+    // Find an open ticket for this table, or create one.
+    let ticket = await Ticket.findOne({
+      restaurantId: String(restaurantId),
+      tableNumber: String(tableNumber),
+      status: 'open',
+    });
+
+    if (!ticket) {
+      ticket = await Ticket.create({
+        restaurantId: String(restaurantId),
+        tableNumber: String(tableNumber),
+        primaryName: customerName || 'Guest',
+        status: 'open',
+        totalAmount: 0,
+        createdBySession: sessionId || undefined,
+      });
+    }
 
     const newOrder = await Order.create({
       restaurantId: String(restaurantId),
-      customerName: customerName || 'Guest',
-      tableNumber: tableNumber || 'Takeaway',
+      customerName: customerName || ticket.primaryName || 'Guest',
+      tableNumber: String(tableNumber),
       items,
       totalAmount,
+      ticketId: ticket._id,
       status: 'pending',
     });
 
-    sendPushNotification(String(restaurantId), {
-      title: 'New Order Received! 🍽️',
-      body: `Table ${newOrder.tableNumber} - ${newOrder.customerName}`,
+    // Recalculate ticket total
+    const ticketOrders = await Order.find({ ticketId: ticket._id });
+    ticket.totalAmount = ticketOrders.reduce((sum, o) => {
+      const amt = typeof o.totalAmount === 'number'
+        ? o.totalAmount
+        : parseInt(String(o.totalAmount).replace(/[^0-9]/g, ''), 10) || 0;
+      return sum + amt;
+    }, 0);
+    await ticket.save();
+
+    // Push notification (best-effort, fire-and-forget)
+    const { sendPushNotification } = await import('./orderPushHelper.js').catch(() => ({
+      sendPushNotification: async () => undefined,
+    }));
+    void sendPushNotification(String(restaurantId), {
+      title: ticketOrders.length > 1 ? 'Items added to ticket 🍽️' : 'New Order Received! 🍽️',
+      body: `Table ${newOrder.tableNumber} - ${ticket.primaryName}${ticketOrders.length > 1 ? ` (+${ticketOrders.length - 1} more)` : ''}`,
       icon: '/icon.png',
     });
 
-    res.status(201).json(newOrder);
+    res.status(201).json({ ...newOrder.toObject(), ticketId: ticket._id });
   } catch (error) {
     next(error);
   }
@@ -92,7 +106,25 @@ export const getOrders = async (req: AuthRequest, res: Response, next: NextFunct
   }
 };
 
-// @desc    Get public orders for a specific table/customer (Live Tracking)
+// @desc    Get orders for a specific ticket (with all sibling orders)
+// @route   GET /api/orders/ticket/:ticketId
+// @access  Public (used by customer history view to see all items in their bill)
+export const getOrdersByTicket = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { ticketId } = req.params;
+    const ticketIdStr = String(ticketId);
+    if (!mongoose.Types.ObjectId.isValid(ticketIdStr)) {
+      res.status(400);
+      throw new Error('Invalid ticket ID');
+    }
+    const orders = await Order.find({ ticketId: ticketIdStr }).sort({ createdAt: 1 });
+    res.json(orders);
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Get public orders for a specific table/customer (Live Tracking, legacy)
 // @route   GET /api/orders/public/:restaurantId
 // @access  Public
 export const getPublicOrders = async (req: Request, res: Response, next: NextFunction) => {
@@ -145,7 +177,10 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response, next: N
     await order.save();
 
     if (status === 'payment_verifying') {
-      sendPushNotification(String(restaurantId), {
+      const { sendPushNotification } = await import('./orderPushHelper.js').catch(() => ({
+        sendPushNotification: async () => undefined,
+      }));
+      void sendPushNotification(String(restaurantId), {
         title: 'Payment Verification Requested 💸',
         body: `Table ${order.tableNumber} claims they have paid.`,
         icon: '/icon.png',

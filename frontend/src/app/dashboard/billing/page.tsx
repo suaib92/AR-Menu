@@ -6,6 +6,7 @@ import { CreditCard, Receipt, Users, CheckCircle2, X, Send, Smartphone } from 'l
 import toast from 'react-hot-toast';
 import { useLiveOrders } from '@/hooks/useLiveOrders';
 import { IOrder } from '@/types';
+import { getApiUrl } from '@/utils/api';
 
 export default function BillingPage() {
   const [selectedTable, setSelectedTable] = useState<any>(null);
@@ -15,6 +16,17 @@ export default function BillingPage() {
     try {
       // Mark all orders in this group as requested status
       await Promise.all(tableGroups.map((order) => updateOrderStatus(order._id, status)));
+
+      // When fully paid, close the ticket so a new one can open on the same table
+      if (status === 'paid' && tableGroups[0]?.ticketId) {
+        const apiUrl = getApiUrl();
+        const token = localStorage.getItem('token') || '';
+        await fetch(`${apiUrl}/tickets/${tableGroups[0].ticketId}/close`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+      }
+
       setSelectedTable(null);
       toast.success('Status updated.');
     } catch (err) {
@@ -30,10 +42,13 @@ export default function BillingPage() {
   // Filter out already paid orders
   const activeOrders = orders.filter(o => o.status !== 'paid');
 
-  // Group by tableNumber and customerName
+  // Group by ticket when available (modern flow), else fall back to table+name
+  // for legacy orders that don't have a ticketId. Either way, one card = one bill.
   const tableGroups: Record<string, any[]> = {};
   activeOrders.forEach(order => {
-    const key = `Table ${order.tableNumber} - ${order.customerName}`;
+    const key = order.ticketId
+      ? `ticket:${order.ticketId}`
+      : `legacy:Table ${order.tableNumber} - ${order.customerName}`;
     if (!tableGroups[key]) {
       tableGroups[key] = [];
     }
@@ -48,7 +63,7 @@ export default function BillingPage() {
             <CreditCard className="w-8 h-8 text-blue-400" />
             Billing & Checkout
           </h1>
-          <p className="text-blue-300">Settle bills for active tables. Orders from the same table are automatically grouped.</p>
+          <p className="text-blue-300">One bill per table. Tap a card to view the itemised receipt and settle.</p>
         </div>
       </div>
 

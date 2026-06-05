@@ -38,9 +38,10 @@ export const orderSchema = z.object({
   restaurantId: z.string().min(1, 'Restaurant ID is required').max(64),
   customerName: z
     .string()
-    .min(1, 'Customer name is required')
     .max(60, 'Customer name too long')
-    .transform((s) => s.replace(/[\u0000-\u001F\u007F]/g, '').trim()),
+    .transform((s) => s.replace(/[\u0000-\u001F\u007F]/g, '').trim())
+    .optional()
+    .default('Guest'),
   tableNumber: z.string().min(1, 'Table number is required').max(40),
   items: z.array(z.object({
     name: z.string().min(1).max(120),
@@ -48,6 +49,7 @@ export const orderSchema = z.object({
     quantity: z.number().int().positive().optional(),
   })).min(1, 'At least one item is required').max(50, 'Too many items'),
   totalAmount: z.number().positive('Total amount must be positive').max(1_000_000, 'Amount too large'),
+  sessionId: z.string().max(128).optional(),
 });
 
 export const orderStatusSchema = z.object({

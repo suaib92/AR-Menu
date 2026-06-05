@@ -14,6 +14,7 @@ export interface IOrder extends Document {
   items: any[];
   totalAmount: number;
   currency: string;
+  ticketId?: mongoose.Types.ObjectId;
   status: 'pending' | 'preparing' | 'delivering' | 'completed' | 'paid' | 'payment_requested' | 'payment_verifying';
 }
 
@@ -63,6 +64,12 @@ const OrderSchema: Schema = new Schema(
       type: String,
       default: 'INR',
     },
+    ticketId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Ticket',
+      index: true,
+      sparse: true,
+    },
     status: {
       type: String,
       enum: ['pending', 'preparing', 'delivering', 'completed', 'paid', 'payment_requested', 'payment_verifying'],
@@ -75,6 +82,7 @@ const OrderSchema: Schema = new Schema(
 );
 
 OrderSchema.index({ restaurantId: 1, status: 1 });
+OrderSchema.index({ restaurantId: 1, ticketId: 1 });
 OrderSchema.index({ customerName: 1 });
 
 export default mongoose.model<IOrder>('Order', OrderSchema);

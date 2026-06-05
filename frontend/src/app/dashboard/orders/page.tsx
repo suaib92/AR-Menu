@@ -170,24 +170,30 @@ export default function LiveOrdersPage() {
               </motion.div>
             ))}
 
-            {activeOrders.length === 0 && paymentVerifying.length === 0 ? (
-              <div className="col-span-full">
-                <EmptyState
-                  icon={ChefHat}
-                  title="No active orders"
-                  description="When a customer places an order from the AR menu, it will appear here in real time."
-                />
-              </div>
-            ) : (
-              activeOrders.map((order) => (
-                <motion.div
-                  key={order._id}
-                  initial={{ opacity: 0, scale: 0.96 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.96 }}
-                  transition={{ type: 'spring', stiffness: 280, damping: 24 }}
-                  className="bg-white/[0.05] border border-white/15 p-5 rounded-2xl relative overflow-hidden"
-                >
+              {activeOrders.length === 0 && paymentVerifying.length === 0 ? (
+                <div className="col-span-full">
+                  <EmptyState
+                    icon={ChefHat}
+                    title="No active orders"
+                    description="When a customer places an order from the AR menu, it will appear here in real time."
+                  />
+                </div>
+              ) : (
+                activeOrders.map((order) => (
+                  <motion.div
+                    key={order._id}
+                    initial={{ opacity: 0, scale: 0.96 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.96 }}
+                    transition={{ type: 'spring', stiffness: 280, damping: 24 }}
+                    className="bg-white/[0.05] border border-white/15 p-5 rounded-2xl relative overflow-hidden"
+                  >
+                    {/* Ticket badge — indicates this order is part of a multi-order bill */}
+                    {order.ticketId && (
+                      <div className="absolute top-3 right-3 text-[10px] font-semibold uppercase tracking-wider text-purple-300/80 bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded-full">
+                        Ticket
+                      </div>
+                    )}
                   <div className="absolute top-0 left-0 w-1.5 h-full bg-brand shadow-[0_0_12px_var(--color-brand)]" />
                   <div className="flex justify-between items-start mb-3 gap-2">
                     <div className="min-w-0">

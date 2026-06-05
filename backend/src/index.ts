@@ -73,6 +73,7 @@ import authRoutes from './routes/authRoutes';
 import restaurantRoutes from './routes/restaurantRoutes';
 import menuRoutes from './routes/menuRoutes';
 import orderRoutes from './routes/orderRoutes';
+import ticketRoutes from './routes/ticketRoutes';
 import settingsRoutes from './routes/settingsRoutes';
 import notificationRoutes from './routes/notificationRoutes';
 import paymentRoutes from './routes/paymentRoutes';
@@ -131,6 +132,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/qr', qrRoutes);
+app.use('/api/tickets', ticketRoutes);
 
 app.post('/api/menu/analyze-food', protect, aiLimiter, upload.single('image'), analyzeFood);
 app.post('/api/menu/upload-image', protect, aiLimiter, upload.single('image'), uploadManualImage);

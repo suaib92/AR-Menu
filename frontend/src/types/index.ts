@@ -21,7 +21,21 @@ export interface IOrder {
   items: IMenuItem[];
   totalAmount: number | string;
   currency: string;
+  ticketId?: string;
   status: 'pending' | 'preparing' | 'delivering' | 'completed' | 'paid' | 'payment_requested' | 'payment_verifying';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ITicket {
+  _id: string;
+  restaurantId: string;
+  tableNumber: string;
+  primaryName: string;
+  status: 'open' | 'closed';
+  totalAmount: number;
+  createdBySession?: string;
+  closedAt?: string;
   createdAt: string;
   updatedAt: string;
 }
