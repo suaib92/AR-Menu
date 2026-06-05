@@ -8,10 +8,21 @@ import { useLiveOrders } from '@/hooks/useLiveOrders';
 export default function LiveOrdersPage() {
   // Default to false so the user MUST click the button to enable it (satisfying browser autoplay policies)
   const [soundEnabled, setSoundEnabled] = useState(false);
-  const { orders, loading, updateOrderStatus } = useLiveOrders(soundEnabled);
+  const { orders, loading, error, updateOrderStatus } = useLiveOrders(soundEnabled);
   
   if (loading) {
     return <div className="p-8 text-gray-400 animate-pulse">Loading live orders...</div>;
+  }
+  
+  if (error) {
+    return (
+      <div className="p-8">
+        <div className="bg-red-500/10 border border-red-500/30 text-red-400 px-6 py-4 rounded-2xl text-sm flex items-center gap-3">
+          <span className="w-3 h-3 bg-red-400 rounded-full animate-pulse shrink-0" />
+          <span>{error}. Make sure the backend is running and disable extensions like Urban VPN Proxy that may block local requests.</span>
+        </div>
+      </div>
+    );
   }
 
   const paymentVerifying = orders.filter(o => o.status === 'payment_verifying');

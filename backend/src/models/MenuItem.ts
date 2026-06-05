@@ -11,6 +11,10 @@ export interface IMenuItem extends Document {
   image?: string;
   imageUrl?: string;
   status: string; // 'Active' | 'Draft'
+  variants?: {
+    name: string;
+    price: string;
+  }[];
 }
 
 const MenuItemSchema: Schema = new Schema(
@@ -51,7 +55,13 @@ const MenuItemSchema: Schema = new Schema(
     status: {
       type: String,
       default: 'Active',
-    }
+    },
+    variants: [
+      {
+        name: { type: String, required: true },
+        price: { type: String, required: true }
+      }
+    ]
   },
   {
     timestamps: true,

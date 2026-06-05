@@ -2,11 +2,21 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { LayoutDashboard, Users, Building2, LogOut, Sparkles, Menu } from 'lucide-react';
+import AuthGuard from '@/components/AuthGuard';
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <AuthGuard requiredRole="super_admin">
+      <AdminShell>{children}</AdminShell>
+    </AuthGuard>
+  );
+}
+
+function AdminShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const navigation = [
@@ -55,7 +65,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </nav>
 
           <div className="p-4 border-t border-white/10">
-            <button className="flex items-center gap-3 px-3 py-2 w-full rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors">
+            <button
+              onClick={() => {
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
+                router.push('/login');
+              }}
+              className="flex items-center gap-3 px-3 py-2 w-full rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
+            >
               <LogOut className="w-5 h-5" />
               Sign Out
             </button>

@@ -1,10 +1,11 @@
 import express from 'express';
-// @ts-ignore - temporary ignore to bypass IDE caching issue if it persists
 import { subscribe } from '../controllers/notificationController';
 import { protect } from '../middleware/auth';
+import { validate } from '../middleware/validate';
+import { pushSubscribeSchema } from '../schemas';
 
 const router = express.Router();
 
-router.post('/subscribe', protect, subscribe);
+router.post('/subscribe', protect, validate(pushSubscribeSchema), subscribe);
 
 export default router;

@@ -66,14 +66,17 @@ export default function SettingsPage() {
     try {
       const apiUrl = getApiUrl();
       const token = localStorage.getItem('token') || '';
-      await fetch(`${apiUrl}/settings`, {
-        method: 'POST',
+      const res = await fetch(`${apiUrl}/settings`, {
+        method: 'PUT',
         headers: { 
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify(formData)
       });
+      if (!res.ok) {
+        throw new Error('Server returned an error');
+      }
       setIsLoading(false);
       setSuccess(true);
       toast.success('Settings saved successfully');

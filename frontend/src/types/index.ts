@@ -10,6 +10,7 @@ export interface IMenuItem {
   image?: string;     // emoji icon
   imageUrl?: string;  // high-res food photo for the 3D viewer
   status: 'Active' | 'Draft';
+  variants?: { name: string; price: string }[];
 }
 
 export interface IOrder {

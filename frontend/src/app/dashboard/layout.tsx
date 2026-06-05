@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { LayoutDashboard, UtensilsCrossed, QrCode, Settings, LogOut, Sparkles, Menu, ClipboardList, CreditCard, BellRing } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { getApiUrl } from '@/utils/api';
+import AuthGuard from '@/components/AuthGuard';
 
 // Helper function to convert VAPID public key
 function urlBase64ToUint8Array(base64String: string) {
@@ -24,7 +25,16 @@ function urlBase64ToUint8Array(base64String: string) {
 }
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <AuthGuard>
+      <DashboardShell>{children}</DashboardShell>
+    </AuthGuard>
+  );
+}
+
+function DashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notificationsGranted, setNotificationsGranted] = useState(false);
 
@@ -97,9 +107,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         // Send to backend
         const token = localStorage.getItem('token') || '';
+        const userString = localStorage.getItem('user');
+        const user = userString ? JSON.parse(userString) : null;
+
+        if (!user?.restaurantId) {
+          alert("Restaurant not found in your session. Please sign in again.");
+          return;
+        }
+
         await fetch(`${getApiUrl()}/notifications/subscribe`, {
           method: 'POST',
-          body: JSON.stringify(subscription),
+          body: JSON.stringify(subscription.toJSON()),
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`
@@ -172,7 +190,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 Enable Push Alerts
               </button>
             )}
-            <button className="flex items-center gap-3 px-3 py-2 w-full rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors">
+            <button
+              onClick={() => {
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
+                localStorage.removeItem('arMenuCustomer');
+                localStorage.removeItem('arMenuCart');
+                router.push('/login');
+              }}
+              className="flex items-center gap-3 px-3 py-2 w-full rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
+            >
               <LogOut className="w-5 h-5" />
               Sign Out
             </button>

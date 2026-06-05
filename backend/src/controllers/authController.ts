@@ -9,24 +9,48 @@ const generateToken = (id: string) => {
   });
 };
 
-// Mock User ID
-const mockUserId = '123456789012345678901234';
-const mockRestaurantId = '223456789012345678901234';
-
 // @desc    Register user (Owner)
 // @route   POST /api/auth/register
 // @access  Public
 export const register = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { name, email, restaurantName } = req.body;
+    const { name, email, password, restaurantName } = req.body;
+
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      res.status(400);
+      throw new Error('User already exists');
+    }
+
+    let restaurantId: string | undefined;
+    if (restaurantName) {
+      const restaurant = await Restaurant.create({
+        name: restaurantName,
+        subscriptionPlan: 'starter',
+        subscriptionStatus: 'trialing',
+        settings: {
+          currency: 'INR',
+          theme: { primaryColor: '#8b5cf6', secondaryColor: '#ffffff' }
+        }
+      });
+      restaurantId = String(restaurant._id);
+    }
+
+    const user = await User.create({
+      name,
+      email,
+      password,
+      role: restaurantName ? 'owner' : 'customer',
+      restaurantId,
+    });
 
     res.status(201).json({
-      _id: mockUserId,
-      name: name || 'Test User',
-      email: email || 'test@example.com',
-      role: restaurantName ? 'owner' : 'customer',
-      restaurantId: restaurantName ? mockRestaurantId : undefined,
-      token: generateToken(mockUserId),
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      restaurantId: user.restaurantId,
+      token: generateToken(String(user._id)),
     });
   } catch (error) {
     next(error);
@@ -38,15 +62,32 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
 // @access  Public
 export const login = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { email } = req.body;
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      res.status(400);
+      throw new Error('Please provide email and password');
+    }
+
+    const user = await User.findOne({ email }).select('+password');
+    if (!user) {
+      res.status(401);
+      throw new Error('Invalid email or password');
+    }
+
+    const isMatch = await user.matchPassword(password);
+    if (!isMatch) {
+      res.status(401);
+      throw new Error('Invalid email or password');
+    }
 
     res.json({
-      _id: mockUserId,
-      name: 'Test Owner',
-      email: email || 'test@example.com',
-      role: 'owner',
-      restaurantId: mockRestaurantId,
-      token: generateToken(mockUserId),
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      restaurantId: user.restaurantId,
+      token: generateToken(String(user._id)),
     });
   } catch (error) {
     next(error);
@@ -58,12 +99,18 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
 // @access  Private
 export const getMe = async (req: any, res: Response, next: NextFunction) => {
   try {
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      res.status(404);
+      throw new Error('User not found');
+    }
+
     res.json({
-      _id: req.user._id,
-      name: req.user.name,
-      email: req.user.email,
-      role: req.user.role,
-      restaurantId: req.user.restaurantId,
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      restaurantId: user.restaurantId,
     });
   } catch (error) {
     next(error);

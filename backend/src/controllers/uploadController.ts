@@ -35,3 +35,23 @@ export const upload = multer({
   fileFilter,
   limits: { fileSize: 50 * 1024 * 1024 } // 50MB max
 });
+
+import { uploadToCloudinary } from '../utils/cloudinary';
+
+export const uploadManualImage = async (req: Request, res: Response) => {
+  if (!req.file) {
+    res.status(400).json({ message: 'No image uploaded' });
+    return;
+  }
+  const imagePath = req.file.path;
+  try {
+    const cloudinaryUrl = await uploadToCloudinary(imagePath);
+    fs.unlink(imagePath, (err) => {
+      if (err) console.error('Failed to delete temp file:', err);
+    });
+    res.json({ imageUrl: cloudinaryUrl });
+  } catch (error: any) {
+    if (fs.existsSync(imagePath)) fs.unlinkSync(imagePath);
+    res.status(500).json({ message: error.message || 'Failed to upload image' });
+  }
+};

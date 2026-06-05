@@ -10,6 +10,10 @@ build/
 .env.local
 .env.*.local
 
+# Runtime logs
+server_out.log
+server_err.log
+
 # Uploaded files (don't commit user uploads)
 uploads/
 

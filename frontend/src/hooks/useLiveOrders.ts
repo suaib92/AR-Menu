@@ -6,6 +6,7 @@ import { IOrder } from '../types';
 export function useLiveOrders(soundEnabled: boolean = false) {
   const [orders, setOrders] = useState<IOrder[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const previousActiveIds = useRef<Set<string>>(new Set());
   const previousVerifyingIds = useRef<Set<string>>(new Set());
   const isFirstFetch = useRef(true);
@@ -115,6 +116,7 @@ export function useLiveOrders(soundEnabled: boolean = false) {
       }
     } catch (err) {
       console.error('Failed to fetch orders:', err);
+      setError('Could not connect to server');
     } finally {
       setLoading(false);
     }
@@ -148,5 +150,5 @@ export function useLiveOrders(soundEnabled: boolean = false) {
     }
   };
 
-  return { orders, loading, updateOrderStatus };
+  return { orders, loading, error, updateOrderStatus };
 }

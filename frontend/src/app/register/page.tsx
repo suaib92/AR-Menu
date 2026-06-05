@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { Sparkles, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { getApiUrl } from '@/utils/api';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -21,7 +22,7 @@ export default function RegisterPage() {
     setError('');
 
     try {
-      const res = await fetch('http://127.0.0.1:5000/api/auth/register', {
+      const res = await fetch(`${getApiUrl()}/auth/register`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

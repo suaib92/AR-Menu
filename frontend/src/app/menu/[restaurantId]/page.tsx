@@ -58,6 +58,8 @@ function CustomerMenuContent() {
   const [orderPlaced, setOrderPlaced] = useState(false);
   const [activeItem, setActiveItem] = useState<any | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [selectedVariant, setSelectedVariant] = useState<any | null>(null);
+  const [activeCategory, setActiveCategory] = useState<string>('All');
   
   // User Details for Checkout
   const [customerName, setCustomerName] = useState('');
@@ -89,7 +91,9 @@ function CustomerMenuContent() {
       
       // Fetch Settings (Theme & Name)
       try {
-        const settingsRes = await fetch(`${apiUrl}/settings`);
+        const pathParts = window.location.pathname.split('/');
+        const currentRestaurantId = pathParts[pathParts.length - 1];
+        const settingsRes = await fetch(`${apiUrl}/settings/public/${currentRestaurantId}`);
         if (settingsRes.ok) {
           const settingsData = await settingsRes.json();
           setRestaurantSettings(settingsData);
@@ -105,12 +109,10 @@ function CustomerMenuContent() {
         const pathParts = window.location.pathname.split('/');
         const currentRestaurantId = pathParts[pathParts.length - 1];
         
-        // For the MVP, we are fetching all items from the shared database
-        // In a multi-tenant production app, we would use ${currentRestaurantId}
-        const menuRes = await fetch(`${apiUrl}/menu/items/all`);
+        const menuRes = await fetch(`${apiUrl}/menu/items/restaurant/${currentRestaurantId}`);
         if (menuRes.ok) {
           const data = await menuRes.json();
-          setMenuItems(data.filter((item: any) => item.status === 'Active')); // Only show Active items
+          setMenuItems(data);
         }
       } catch (e) {
         console.error("Failed to fetch menu", e);
@@ -122,6 +124,15 @@ function CustomerMenuContent() {
     fetchData();
   }, []);
 
+  // When active item changes, reset variant selection
+  useEffect(() => {
+    if (activeItem?.variants?.length > 0) {
+      setSelectedVariant(activeItem.variants[0]);
+    } else {
+      setSelectedVariant(null);
+    }
+  }, [activeItem]);
+
   // Save Cart to Local Storage on Change
   useEffect(() => {
     localStorage.setItem('arMenuCart', JSON.stringify(cartItems));
@@ -132,7 +143,10 @@ function CustomerMenuContent() {
     if (!customerName || !customerTable) return;
     try {
       const apiUrl = getApiUrl();
-      const url = `${apiUrl}/orders?name=${encodeURIComponent(customerName)}&table=${encodeURIComponent(customerTable)}`;
+      const pathParts = window.location.pathname.split('/');
+      const currentRestaurantId = pathParts[pathParts.length - 1];
+      
+      const url = `${apiUrl}/orders/public/${currentRestaurantId}?name=${encodeURIComponent(customerName)}&table=${encodeURIComponent(customerTable)}`;
       const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
@@ -273,9 +287,11 @@ function CustomerMenuContent() {
                       className="flex justify-between items-center elegant-panel p-4 rounded-2xl"
                     >
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center text-xl">
-                          {item.image || '🍽️'}
-                        </div>
+                        {item.imageUrl ? (
+                        <img src={getImageUrl(item.imageUrl)} className="w-10 h-10 rounded-xl object-cover" alt="" />
+                      ) : (
+                        <div className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center text-xl">🍽️</div>
+                      )}
                         <div>
                           <h4 className="font-bold text-white tracking-tight">{item.name}</h4>
                           <p className="text-sm font-medium" style={{ color: primaryColor }}>{item.price}</p>
@@ -418,13 +434,40 @@ function CustomerMenuContent() {
     return sum + price;
   }, 0);
 
-  // UPI Link Generation - Ensure strict formatting for PhonePe/GPay compatibility
-  const rawUpiId = restaurantSettings?.upiId || "restaurant@mockupi";
-  const upiId = rawUpiId.trim(); 
-  const displayRestaurantName = restaurantSettings?.restaurantName || restaurantName;
-  const formattedAmount = Number(paymentGrandTotal).toFixed(2); // PhonePe often strictly requires .00 format
-  
-  const upiLink = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(displayRestaurantName)}&am=${formattedAmount}&cu=INR&tn=${encodeURIComponent('Bill Payment Table ' + customerTable)}`;
+  // UPI Link Generation - fetched server-side for security
+  const [upiLink, setUpiLink] = useState('');
+  const [isGeneratingUpi, setIsGeneratingUpi] = useState(false);
+
+  useEffect(() => {
+    if (!hasPaymentRequest) return;
+    const generateUpiLink = async () => {
+      setIsGeneratingUpi(true);
+      try {
+        const apiUrl = getApiUrl();
+        const pathParts = window.location.pathname.split('/');
+        const currentRestaurantId = pathParts[pathParts.length - 1];
+        const res = await fetch(`${apiUrl}/payment/upi-link`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            restaurantId: currentRestaurantId,
+            amount: paymentGrandTotal,
+            customerName,
+            tableNumber: customerTable,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setUpiLink(data.upiLink);
+        }
+      } catch (e) {
+        console.error('Failed to generate UPI link', e);
+      } finally {
+        setIsGeneratingUpi(false);
+      }
+    };
+    generateUpiLink();
+  }, [hasPaymentRequest, paymentGrandTotal]);
 
   const handleMarkAsPaid = async () => {
     try {
@@ -553,7 +596,28 @@ function CustomerMenuContent() {
         </header>
 
         <div className="space-y-6">
-          <h2 className="text-lg font-semibold text-gray-400">Menu</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-gray-400">Menu</h2>
+          </div>
+          
+          {/* Category Filter Chips */}
+          {menuItems.length > 0 && (
+            <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide -mx-6 px-6">
+              {['All', ...Array.from(new Set(menuItems.map(i => i.category)))].map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => setActiveCategory(cat)}
+                  className={`whitespace-nowrap px-5 py-2.5 rounded-full font-semibold transition-all ${
+                    activeCategory === cat 
+                      ? 'bg-white text-black' 
+                      : 'bg-[#1a1a1a] text-gray-400 border border-white/10 hover:bg-[#222]'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+          )}
           
           {isLoadingMenu ? (
             <div className="flex justify-center items-center py-20">
@@ -563,7 +627,7 @@ function CustomerMenuContent() {
             <div className="text-gray-500 text-center py-16 font-medium bg-[#111] rounded-2xl border border-white/5">No items available yet.</div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {menuItems.map((item, i) => (
+              {(activeCategory === 'All' ? menuItems : menuItems.filter(i => i.category === activeCategory)).map((item, i) => (
                 <motion.div
                   key={item._id}
                   initial={{ opacity: 0, y: 10 }}
@@ -576,20 +640,17 @@ function CustomerMenuContent() {
                   }}
                   className="bg-[#111] border border-white/5 p-4 rounded-[1.5rem] flex items-center gap-4 cursor-pointer hover:bg-[#151515] transition-colors"
                 >
-                  <div className="w-20 h-20 bg-[#1a1a1a] rounded-xl flex items-center justify-center text-3xl shrink-0">
-                    {item.image || '🍽️'}
-                  </div>
+                  {item.imageUrl ? (
+                    <img src={getImageUrl(item.imageUrl)} className="w-20 h-20 rounded-xl object-cover shrink-0" alt="" />
+                  ) : (
+                    <div className="w-20 h-20 bg-[#1a1a1a] rounded-xl flex items-center justify-center text-3xl shrink-0">🍽️</div>
+                  )}
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-bold text-lg text-white mb-1 truncate">{item.name}</h3>
+                    <h3 className="font-bold text-lg text-white mb-1">{item.name}</h3>
                     <p className="font-semibold text-gray-300">
                       {item.price}
                     </p>
                   </div>
-                  {item.imageUrl && (
-                    <div className="shrink-0 bg-purple-600/20 text-purple-400 px-3 py-1.5 rounded-lg text-xs font-bold border border-purple-500/30">
-                      3D View
-                    </div>
-                  )}
                 </motion.div>
               ))}
             </div>
@@ -645,7 +706,7 @@ function CustomerMenuContent() {
             transition={{ type: "spring", bounce: 0.5 }}
             className="text-[10rem] relative z-10"
           >
-            {activeItem.image || '🍽️'}
+            🍽️
           </motion.div>
         )}
       </div>
@@ -666,7 +727,9 @@ function CustomerMenuContent() {
             <div className="flex items-center justify-between">
               <div className="pr-4">
                 <h2 className="text-2xl font-bold tracking-tight text-white mb-1">{activeItem.name}</h2>
-                <p className="font-semibold text-xl text-gray-300">{activeItem.price}</p>
+                <p className="font-semibold text-xl text-gray-300">
+                  {selectedVariant ? selectedVariant.price : activeItem.price}
+                </p>
               </div>
               <motion.div 
                 animate={{ rotate: detailsOpen ? 180 : 0 }}
@@ -699,14 +762,48 @@ function CustomerMenuContent() {
                 </div>
               </div>
 
+              {/* Variant Selector */}
+              {activeItem.variants && activeItem.variants.length > 0 && (
+                <div className="space-y-3 pt-2">
+                  <p className="text-sm font-bold text-white uppercase tracking-wider">Choose Size</p>
+                  <div className="flex flex-wrap gap-3">
+                    {activeItem.variants.map((variant: any, idx: number) => (
+                      <button
+                        key={idx}
+                        onClick={() => setSelectedVariant(variant)}
+                        className={`px-5 py-3 rounded-xl border font-semibold transition-all flex items-center gap-2 ${
+                          selectedVariant?.name === variant.name 
+                            ? 'bg-purple-600/20 border-purple-500 text-white' 
+                            : 'bg-[#1a1a1a] border-white/10 text-gray-400 hover:bg-[#222]'
+                        }`}
+                      >
+                        {selectedVariant?.name === variant.name && <CheckCircle2 className="w-4 h-4 text-purple-400" />}
+                        {variant.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <motion.button 
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={() => {
                   playPopSound();
-                  setCartItems(prev => [...prev, activeItem]);
+                  
+                  // Create a copy so we don't mutate the original
+                  const cartItemToAdd = { ...activeItem };
+                  if (selectedVariant) {
+                    cartItemToAdd.name = `${activeItem.name} (${selectedVariant.name})`;
+                    cartItemToAdd.price = selectedVariant.price;
+                  }
+                  
+                  setCartItems(prev => [...prev, cartItemToAdd]);
+                  
+                  // Optional: Close details after adding
+                  setDetailsOpen(false);
                 }}
-                className="w-full bg-white text-black font-bold text-lg rounded-xl py-4 flex justify-center items-center"
+                className="w-full bg-white text-black font-bold text-lg rounded-xl py-4 flex justify-center items-center mt-6"
               >
                 Add to Cart
               </motion.button>

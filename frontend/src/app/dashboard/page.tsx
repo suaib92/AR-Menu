@@ -8,7 +8,8 @@ import { getApiUrl } from '@/utils/api';
 
 export default function DashboardPage() {
   const [activeMenuItemsCount, setActiveMenuItemsCount] = useState(0);
-  const { orders, loading } = useLiveOrders();
+  const [menuError, setMenuError] = useState('');
+  const { orders, loading, error: ordersError } = useLiveOrders();
   const [isMenuLoading, setIsMenuLoading] = useState(true);
 
   // Calculate Revenue and Recent Orders from the live hook
@@ -24,13 +25,17 @@ export default function DashboardPage() {
     const fetchMenuStats = async () => {
       try {
         const apiUrl = getApiUrl();
-        const menuRes = await fetch(`${apiUrl}/menu/items/all`);
+        const token = localStorage.getItem('token') || '';
+        const menuRes = await fetch(`${apiUrl}/menu/items`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
         if (menuRes.ok) {
           const menuItems = await menuRes.json();
           const activeCount = menuItems.filter((m: any) => m.status === 'Active').length;
           setActiveMenuItemsCount(activeCount);
         }
       } catch (error) {
+        setMenuError('Could not load menu stats');
         console.error("Failed to fetch dashboard data", error);
       } finally {
         setIsMenuLoading(false);
@@ -39,6 +44,7 @@ export default function DashboardPage() {
     fetchMenuStats();
   }, []);
   const isLoadingAll = loading || isMenuLoading;
+  const connectionError = menuError || ordersError;
 
   const stats = [
     { name: 'Total Revenue', value: `₹${totalRevenue.toLocaleString()}`, icon: IndianRupee, change: '+12.5%', trend: 'up' },
@@ -52,6 +58,12 @@ export default function DashboardPage() {
       <div>
         <h1 className="text-3xl font-bold tracking-tight mb-2">Overview</h1>
         <p className="text-gray-400">Welcome back. Here's what's happening today.</p>
+        {connectionError && (
+          <div className="mt-4 bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-3 rounded-xl text-sm flex items-center gap-2">
+            <span className="w-2 h-2 bg-red-400 rounded-full animate-pulse shrink-0" />
+            {connectionError} — check the backend is running and disable browser extensions like Urban VPN Proxy that may block local requests.
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

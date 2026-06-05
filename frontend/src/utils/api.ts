@@ -1,24 +1,29 @@
-export const getApiUrl = () => {
-  if (typeof window !== 'undefined') {
-    let host = window.location.hostname;
-    // Map localhost to 127.0.0.1 to avoid IPv6 connection refused issues on Windows
-    if (host === 'localhost') {
-      host = '127.0.0.1';
-    }
-    return `http://${host}:5000/api`;
+const envUrl = process.env.NEXT_PUBLIC_API_URL;
+
+export const getApiUrl = (): string => {
+  if (envUrl) {
+    return envUrl.replace(/\/$/, '');
   }
-  
-  // Fallback for SSR or static generation
-  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0';
+    if (isLocal) {
+      return 'http://127.0.0.1:5000/api';
+    }
+    const protocol = window.location.protocol;
+    return `${protocol}//${host}:5000/api`;
+  }
+
+  return 'http://localhost:5000/api';
 };
 
-export const getImageUrl = (url?: string) => {
+export const getImageUrl = (url?: string): string => {
   if (!url) return '';
   if (url.startsWith('http')) return url;
-  
-  // If it's a relative URL from the backend
+
   if (url.startsWith('/')) {
-    const baseUrl = getApiUrl().replace('/api', '');
+    const baseUrl = getApiUrl().replace(/\/api$/, '');
     return `${baseUrl}${url}`;
   }
   return url;
