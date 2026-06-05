@@ -15,7 +15,6 @@ export default function SettingsPage() {
     email: '',
     upiId: '',
     themeColor: '#8b5cf6', // Default purple-500
-    currency: 'USD',
   });
 
   useEffect(() => {
@@ -33,7 +32,6 @@ export default function SettingsPage() {
           restaurantName: data.restaurantName || '',
           upiId: data.upiId || '',
           themeColor: data.themeColor || '#8b5cf6',
-          currency: data.currency || 'USD',
         }));
       })
       .catch(err => console.error(err));
@@ -166,19 +164,6 @@ export default function SettingsPage() {
                   className="flex-1 bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all font-mono"
                 />
               </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-400 mb-2">Currency</label>
-              <select 
-                value={formData.currency}
-                onChange={(e) => setFormData({...formData, currency: e.target.value})}
-                className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all"
-              >
-                <option value="USD">USD ($)</option>
-                <option value="EUR">EUR (€)</option>
-                <option value="GBP">GBP (£)</option>
-                <option value="INR">INR (₹)</option>
-              </select>
             </div>
           </div>
         </div>

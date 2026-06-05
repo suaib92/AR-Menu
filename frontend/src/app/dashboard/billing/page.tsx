@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CreditCard, Receipt, Users, CheckCircle2, X, Send, Smartphone } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { useLiveOrders } from '@/hooks/useLiveOrders';
 import { IOrder } from '@/types';
 
@@ -15,9 +16,10 @@ export default function BillingPage() {
       // Mark all orders in this group as requested status
       await Promise.all(tableGroups.map((order) => updateOrderStatus(order._id, status)));
       setSelectedTable(null);
+      toast.success('Status updated.');
     } catch (err) {
       console.error("Failed to update status:", err);
-      alert("Failed to update status");
+      toast.error('Failed to update status.');
     }
   };
 

@@ -124,8 +124,39 @@ export function useLiveOrders(soundEnabled: boolean = false) {
 
   useEffect(() => {
     fetchOrders(true); // Initial fetch
-    const interval = setInterval(() => fetchOrders(false), 3000);
-    return () => clearInterval(interval);
+
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    const start = () => {
+      if (intervalId) return;
+      intervalId = setInterval(() => {
+        if (typeof document !== 'undefined' && document.hidden) return;
+        fetchOrders(false);
+      }, 5000);
+    };
+    const stop = () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        fetchOrders(false);
+        start();
+      } else {
+        stop();
+      }
+    };
+
+    start();
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      stop();
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, []);
 
   const updateOrderStatus = async (orderId: string, status: string) => {

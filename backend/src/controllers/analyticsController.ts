@@ -292,3 +292,32 @@ export const getAdminOverview = async (req: AuthRequest, res: Response, next: Ne
     next(error);
   }
 };
+
+// Super admin: paginated user list.
+export const getUsers = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const page = Math.max(parseInt(String(req.query.page ?? '1'), 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? '50'), 10) || 50, 1), 200);
+    const skip = (page - 1) * limit;
+    const search = String(req.query.search ?? '').trim();
+
+    const filter: Record<string, unknown> = {};
+    if (search) {
+      const safe = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      filter.$or = [
+        { name: { $regex: safe, $options: 'i' } },
+        { email: { $regex: safe, $options: 'i' } },
+      ];
+    }
+    if (req.query.role) filter.role = String(req.query.role);
+
+    const [users, total] = await Promise.all([
+      User.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).select('-password'),
+      User.countDocuments(filter),
+    ]);
+
+    res.json({ data: users, page, limit, total });
+  } catch (error) {
+    next(error);
+  }
+};

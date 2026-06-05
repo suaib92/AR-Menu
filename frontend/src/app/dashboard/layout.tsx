@@ -3,8 +3,9 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, UtensilsCrossed, QrCode, Settings, LogOut, Sparkles, Menu, ClipboardList, CreditCard, BellRing } from 'lucide-react';
+import { LayoutDashboard, UtensilsCrossed, QrCode, Settings, LogOut, Sparkles, Menu, X, ClipboardList, CreditCard, BellRing } from 'lucide-react';
 import { motion } from 'framer-motion';
+import toast from 'react-hot-toast';
 import { getApiUrl } from '@/utils/api';
 import AuthGuard from '@/components/AuthGuard';
 
@@ -38,39 +39,10 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notificationsGranted, setNotificationsGranted] = useState(false);
 
-  // Screen Wake Lock to prevent the screen from turning off automatically
+  // Auto-close mobile sidebar on route change
   useEffect(() => {
-    let wakeLock: any = null;
-    const requestWakeLock = async () => {
-      try {
-        if ('wakeLock' in navigator) {
-          wakeLock = await (navigator as any).wakeLock.request('screen');
-          console.log('Screen Wake Lock is active');
-        }
-      } catch (err) {
-        console.error('Failed to acquire wake lock:', err);
-      }
-    };
-
-    requestWakeLock();
-
-    // Re-request wake lock when document becomes visible again
-    const handleVisibilityChange = () => {
-      if (wakeLock !== null && document.visibilityState === 'visible') {
-        requestWakeLock();
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      if (wakeLock !== null) {
-        wakeLock.release().then(() => {
-          console.log('Screen Wake Lock released');
-        });
-      }
-    };
-  }, []);
+    setSidebarOpen(false);
+  }, [pathname]);
 
   useEffect(() => {
     // Check if already granted
@@ -83,7 +55,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
 
   const handleSubscribe = async () => {
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-      alert("Push notifications are not supported by your browser.");
+      toast.error('Push notifications are not supported by your browser.');
       return;
     }
 
@@ -111,7 +83,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
         const user = userString ? JSON.parse(userString) : null;
 
         if (!user?.restaurantId) {
-          alert("Restaurant not found in your session. Please sign in again.");
+          toast.error('Restaurant not found in your session. Please sign in again.');
           return;
         }
 
@@ -124,11 +96,11 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
           }
         });
         
-        alert("Subscribed to Push Notifications successfully!");
+        toast.success('Subscribed to push notifications.');
       }
     } catch (error) {
       console.error("Error subscribing to push notifications:", error);
-      alert("Failed to subscribe to push notifications.");
+      toast.error('Failed to subscribe to push notifications.');
     }
   };
 
@@ -142,17 +114,38 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
   ];
 
   return (
-    <div className="min-h-screen bg-black text-white flex">
-      {/* Mobile sidebar toggle */}
-      <div className="lg:hidden fixed top-4 left-4 z-50">
-        <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-2 bg-white/10 rounded-md">
-          <Menu className="w-6 h-6" />
+    <div className="min-h-screen bg-black text-white lg:flex">
+      {/* Mobile sidebar toggle (top-right avoids logo overlap) */}
+      <div className="lg:hidden fixed top-3 right-3 z-50">
+        <button
+          onClick={() => setSidebarOpen((s) => !s)}
+          aria-label={sidebarOpen ? 'Close menu' : 'Open menu'}
+          aria-expanded={sidebarOpen}
+          className="p-2.5 bg-white/10 backdrop-blur rounded-xl border border-white/10 hover:bg-white/15 transition-colors"
+        >
+          {sidebarOpen ? (
+            <X className="w-5 h-5" />
+          ) : (
+            <Menu className="w-5 h-5" />
+          )}
         </button>
       </div>
 
+      {/* Mobile backdrop */}
+      {sidebarOpen && (
+        <button
+          aria-label="Close menu"
+          onClick={() => setSidebarOpen(false)}
+          className="lg:hidden fixed inset-0 z-30 bg-black/60 backdrop-blur-sm cursor-default"
+        />
+      )}
+
       {/* Sidebar */}
       <aside className={`
-        fixed inset-y-0 left-0 z-40 w-64 bg-white/5 border-r border-white/10 backdrop-blur-xl transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static
+        fixed inset-y-0 left-0 z-40 w-64 shrink-0
+        bg-white/5 border-r border-white/10 backdrop-blur-xl
+        transition-transform duration-300 ease-in-out
+        lg:static lg:translate-x-0 lg:flex lg:flex-col
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
         <div className="flex flex-col h-full">

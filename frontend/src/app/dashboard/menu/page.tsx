@@ -6,8 +6,14 @@ import toast from 'react-hot-toast';
 import { getApiUrl, getImageUrl } from '@/utils/api';
 import { Plus, Search, Edit2, Trash2, X, Box, Upload, Loader2, Camera, Sparkles } from 'lucide-react';
 import { IMenuItem } from '@/types';
+import { useConfirm } from '@/components/ui/confirm-dialog';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
 
 export default function MenuManagementPage() {
+  const confirm = useConfirm();
   const [items, setItems] = useState<IMenuItem[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -69,7 +75,13 @@ export default function MenuManagementPage() {
   }, []);
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this item?')) return;
+    const ok = await confirm({
+      title: 'Delete this menu item?',
+      description: 'Customers will no longer see it on the menu.',
+      confirmText: 'Delete',
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       const apiUrl = getApiUrl();
       const token = localStorage.getItem('token') || '';
@@ -245,13 +257,14 @@ export default function MenuManagementPage() {
           <h1 className="text-3xl font-bold tracking-tight mb-2">Menu Items</h1>
           <p className="text-gray-400">Manage your AR menu items, pricing, and 3D models.</p>
         </div>
-        <button 
+        <Button
           onClick={() => { resetForm(); setIsAddModalOpen(true); }}
-          className="bg-white text-black font-semibold rounded-xl px-6 py-3 flex items-center gap-2 hover:bg-gray-200 transition-colors shadow-lg"
+          variant="primary"
+          size="lg"
+          leftIcon={<Plus className="w-5 h-5" />}
         >
-          <Plus className="w-5 h-5" />
           Add New Item
-        </button>
+        </Button>
       </div>
 
       <div className="bg-white/5 border border-white/10 rounded-3xl overflow-hidden">
@@ -301,17 +314,38 @@ export default function MenuManagementPage() {
                   <td colSpan={5} className="p-12 text-center">
                     <div className="inline-flex items-center gap-2 bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-3 rounded-xl text-sm">
                       <span className="w-2 h-2 bg-red-400 rounded-full animate-pulse shrink-0" />
-                      {fetchError}. Make sure the backend is running and disable extensions like Urban VPN Proxy.
+                      {fetchError}. Make sure the backend is running.
                     </div>
                   </td>
                 </tr>
               ) : isLoading ? (
                 <tr>
-                  <td colSpan={5} className="p-12 text-center text-gray-400">Loading menu items from database...</td>
+                  <td colSpan={5} className="p-6">
+                    <div className="space-y-2">
+                      {Array.from({ length: 5 }).map((_, i) => (
+                        <Skeleton key={i} className="h-14 rounded-xl" />
+                      ))}
+                    </div>
+                  </td>
                 </tr>
               ) : filteredItems.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="p-12 text-center text-gray-400">No menu items found. Click "Add New Item" to create one.</td>
+                  <td colSpan={5} className="p-0">
+                    <EmptyState
+                      icon={Box}
+                      title="No menu items yet"
+                      description="Add your first item to publish it on the AR menu. You can also use the AI photo analyser to auto-fill details from a picture."
+                      action={
+                        <Button
+                          onClick={() => { resetForm(); setIsAddModalOpen(true); }}
+                          variant="primary"
+                          leftIcon={<Plus className="w-4 h-4" />}
+                        >
+                          Add menu item
+                        </Button>
+                      }
+                    />
+                  </td>
                 </tr>
               ) : (
                 filteredItems.map((item, i) => (
@@ -333,24 +367,24 @@ export default function MenuManagementPage() {
                     <td className="p-6 text-gray-400">{item.category}</td>
                     <td className="p-6">{item.price}</td>
                     <td className="p-6">
-                      <span className={`px-3 py-1 text-xs font-medium rounded-full ${
-                        item.status === 'Active' ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 
-                        'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20'
-                      }`}>
-                        {item.status}
-                      </span>
+                      <StatusBadge
+                        status={item.status.toLowerCase()}
+                        variant="subscription"
+                      />
                     </td>
                     <td className="p-6 text-right">
-                      <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button 
+                      <div className="flex justify-end gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                        <button
                           onClick={() => handleEditItem(item)}
-                          className="p-2 hover:bg-white/10 rounded-lg transition-colors text-gray-400 hover:text-white"
+                          aria-label={`Edit ${item.name}`}
+                          className="p-2.5 sm:p-2 hover:bg-white/10 rounded-lg transition-colors text-text-muted hover:text-white"
                         >
                           <Edit2 className="w-4 h-4" />
                         </button>
-                        <button 
+                        <button
                           onClick={() => handleDelete(item._id)}
-                          className="p-2 hover:bg-red-500/20 rounded-lg transition-colors text-gray-400 hover:text-red-400"
+                          aria-label={`Delete ${item.name}`}
+                          className="p-2.5 sm:p-2 hover:bg-red-500/20 rounded-lg transition-colors text-text-muted hover:text-red-400"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>

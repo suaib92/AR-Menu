@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronUp, ShoppingBag, Info, ArrowLeft, X, CheckCircle2, Clock, ChefHat, Truck, Receipt, QrCode } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
+import toast from 'react-hot-toast';
 import { getApiUrl, getImageUrl } from '@/utils/api';
 
 // --- Web Audio API Synth Sounds ---
@@ -230,7 +231,7 @@ function CustomerMenuContent() {
 
   const handleCheckout = async () => {
     if (!customerName.trim() || !customerTable.trim()) {
-      alert("Please enter your name and table number!");
+      toast.error('Please enter your name and table number.');
       return;
     }
 
@@ -275,7 +276,7 @@ function CustomerMenuContent() {
       }, 3000);
     } catch (error) {
       console.error('Failed to place order:', error);
-      alert('Failed to place order. Please try again.');
+      toast.error('Failed to place order. Please try again.');
     }
   };
 
@@ -290,7 +291,7 @@ function CustomerMenuContent() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => setIsCartOpen(false)}
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm z-40"
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
           />
           {/* Drawer */}
           <motion.div 
@@ -298,7 +299,7 @@ function CustomerMenuContent() {
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
             transition={{ type: "spring", damping: 25, stiffness: 200 }}
-            className="absolute bottom-0 left-0 right-0 elegant-drawer rounded-t-[2rem] p-6 z-50 max-h-[85vh] flex flex-col"
+            className="fixed bottom-0 left-0 right-0 elegant-drawer rounded-t-[2rem] p-6 z-50 max-h-[85vh] flex flex-col"
           >
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-2xl font-bold flex items-center gap-2">
@@ -410,12 +411,12 @@ function CustomerMenuContent() {
           <motion.div 
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             onClick={() => setIsHistoryOpen(false)}
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm z-40"
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
           />
           <motion.div 
             initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
             transition={{ type: "spring", damping: 25, stiffness: 200 }}
-            className="absolute bottom-0 left-0 right-0 elegant-drawer rounded-t-[2rem] p-6 z-50 max-h-[85vh] flex flex-col"
+            className="fixed bottom-0 left-0 right-0 elegant-drawer rounded-t-[2rem] p-6 z-50 max-h-[85vh] flex flex-col"
           >
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-2xl font-bold flex items-center gap-2">

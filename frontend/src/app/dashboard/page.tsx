@@ -22,6 +22,7 @@ import {
 } from 'recharts';
 import { useLiveOrders } from '@/hooks/useLiveOrders';
 import { getApiUrl } from '@/utils/api';
+import { Skeleton } from '@/components/ui/skeleton';
 
 type Trend = { pct: number | null; direction: 'up' | 'down' | 'neutral' };
 type DayPoint = { label: string; revenue: number; ar: number };
@@ -168,7 +169,7 @@ export default function DashboardPage() {
         {connectionError && (
           <div className="mt-4 bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-3 rounded-xl text-sm flex items-center gap-2">
             <span className="w-2 h-2 bg-red-400 rounded-full animate-pulse shrink-0" />
-            {connectionError} — check the backend is running and disable browser extensions like Urban VPN Proxy that may block local requests.
+            {connectionError} — check the backend is running.
           </div>
         )}
       </div>
@@ -196,7 +197,9 @@ export default function DashboardPage() {
               </span>
             </div>
             <h3 className="text-gray-400 text-sm font-medium mb-1">{stat.name}</h3>
-            <div className="text-2xl font-bold">{isLoading ? '...' : stat.value}</div>
+            <div className="text-2xl font-bold min-h-[2rem] flex items-center">
+              {isLoading ? <Skeleton className="h-6 w-24" /> : stat.value}
+            </div>
           </motion.div>
         ))}
       </div>

@@ -4,7 +4,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { QRCodeSVG } from 'qrcode.react';
 import { Download, QrCode, Plus, Trash2, ScanLine, X } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { getApiUrl } from '@/utils/api';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 
 type QrCodeRow = {
   _id: string;
@@ -17,6 +19,7 @@ type QrCodeRow = {
 };
 
 export default function QRCodePage() {
+  const confirm = useConfirm();
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
   const [restaurantName, setRestaurantName] = useState<string>('');
   const [qrCodes, setQrCodes] = useState<QrCodeRow[]>([]);
@@ -110,7 +113,13 @@ export default function QRCodePage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this QR code? Existing prints will stop tracking.')) return;
+    const ok = await confirm({
+      title: 'Delete this QR code?',
+      description: 'Existing printed copies will stop tracking scans.',
+      confirmText: 'Delete',
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       const apiUrl = getApiUrl();
       const token = localStorage.getItem('token') || '';
@@ -118,9 +127,11 @@ export default function QRCodePage() {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });
+      toast.success('QR code deleted.');
       await fetchQrCodes();
     } catch (e) {
       console.error('QR delete failed', e);
+      toast.error('Failed to delete QR code.');
     }
   };
 
