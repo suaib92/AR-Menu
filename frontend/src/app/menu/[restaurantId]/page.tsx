@@ -1081,7 +1081,13 @@ function CustomerMenuContent() {
                   <div className="flex-1 min-w-0">
                     <h3 className="font-bold text-lg text-white mb-1">{item.name}</h3>
                     <p className="font-semibold text-gray-300">
-                      {item.price}
+                      {item.variants && item.variants.length > 0
+                        ? `From ${item.variants.reduce((min, v) => {
+                            const minNum = parseInt(String(min.price).replace(/[^0-9]/g, ''), 10) || Infinity;
+                            const vNum = parseInt(String(v.price).replace(/[^0-9]/g, ''), 10) || Infinity;
+                            return vNum < minNum ? v : min;
+                          }).price}`
+                        : item.price}
                     </p>
                   </div>
                 </motion.div>

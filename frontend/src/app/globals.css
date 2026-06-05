@@ -105,3 +105,19 @@ body {
 [data-brand-color] {
   --brand: attr(data-brand-color color, #a855f7);
 }
+
+/* Frosted-glass panels for bottom drawers & inline cards */
+.elegant-drawer {
+  background: rgba(10, 10, 10, 0.72);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 -20px 50px rgba(0, 0, 0, 0.55);
+}
+
+.elegant-panel {
+  background: rgba(20, 20, 22, 0.65);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
