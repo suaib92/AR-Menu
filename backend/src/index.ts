@@ -76,6 +76,8 @@ import orderRoutes from './routes/orderRoutes';
 import settingsRoutes from './routes/settingsRoutes';
 import notificationRoutes from './routes/notificationRoutes';
 import paymentRoutes from './routes/paymentRoutes';
+import analyticsRoutes from './routes/analyticsRoutes';
+import qrRoutes from './routes/qrRoutes';
 import { upload, uploadManualImage } from './controllers/uploadController';
 import { analyzeFood } from './controllers/geminiController';
 import { protect } from './middleware/auth';
@@ -127,6 +129,8 @@ app.use(
 app.use('/api/settings', settingsRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/payment', paymentRoutes);
+app.use('/api/analytics', analyticsRoutes);
+app.use('/api/qr', qrRoutes);
 
 app.post('/api/menu/analyze-food', protect, aiLimiter, upload.single('image'), analyzeFood);
 app.post('/api/menu/upload-image', protect, aiLimiter, upload.single('image'), uploadManualImage);

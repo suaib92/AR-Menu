@@ -86,6 +86,36 @@ function CustomerMenuContent() {
       setCartItems(JSON.parse(savedCart));
     }
 
+    // Fire analytics beacons (best-effort, fire-and-forget)
+    try {
+      const pathParts = window.location.pathname.split('/');
+      const currentRestaurantId = pathParts[pathParts.length - 1];
+      const qrId = searchParams?.get('qr');
+      const apiUrl = getApiUrl();
+
+      // menu_open ping
+      fetch(`${apiUrl}/analytics/track`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          restaurantId: currentRestaurantId,
+          viewType: 'menu_open',
+        }),
+        keepalive: true,
+      }).catch(() => {});
+
+      // qr_scan ping (one-shot per session per id)
+      if (qrId) {
+        const key = `arMenu.qrScanned.${qrId}`;
+        if (!sessionStorage.getItem(key)) {
+          sessionStorage.setItem(key, '1');
+          fetch(`${apiUrl}/qr/${qrId}/scan`, { method: 'POST' }).catch(() => {});
+        }
+      }
+    } catch {
+      /* swallow analytics errors */
+    }
+
     const fetchData = async () => {
       const apiUrl = getApiUrl();
       
@@ -137,6 +167,31 @@ function CustomerMenuContent() {
   useEffect(() => {
     localStorage.setItem('arMenuCart', JSON.stringify(cartItems));
   }, [cartItems]);
+
+  // Fire ar_session analytics when an item is opened in the 3D viewer
+  useEffect(() => {
+    if (!activeItem?._id) return;
+    const key = `arMenu.arSession.${activeItem._id}`;
+    if (sessionStorage.getItem(key)) return;
+    sessionStorage.setItem(key, '1');
+    try {
+      const pathParts = window.location.pathname.split('/');
+      const restaurantId = pathParts[pathParts.length - 1];
+      const apiUrl = getApiUrl();
+      fetch(`${apiUrl}/analytics/track`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          restaurantId,
+          itemId: activeItem._id,
+          viewType: 'ar_session',
+        }),
+        keepalive: true,
+      }).catch(() => {});
+    } catch {
+      /* swallow */
+    }
+  }, [activeItem?._id]);
 
   // Fetch Order History Live Polling
   const fetchOrderHistory = async () => {
