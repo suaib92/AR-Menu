@@ -138,3 +138,43 @@ export const listOpenTickets = async (req: AuthRequest, res: Response, next: Nex
     next(error);
   }
 };
+
+// @desc    Get all tickets created by a given session id (across all tables/statuses)
+//          Used by the customer's menu page to render "Your Bill" history.
+// @route   GET /api/tickets/by-session/:sessionId
+// @access  Public
+export const getTicketsBySession = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { sessionId } = req.params;
+    if (!sessionId) {
+      res.status(400);
+      throw new Error('sessionId is required');
+    }
+
+    const tickets = await Ticket.find({ createdBySession: String(sessionId) })
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    // Attach orders per ticket so the frontend can render one round-trip
+    const ticketIds = tickets.map((t) => t._id);
+    const orders = ticketIds.length
+      ? await Order.find({ ticketId: { $in: ticketIds } }).sort({ createdAt: 1 }).lean()
+      : [];
+
+    const byTicket: Record<string, typeof orders> = {};
+    for (const o of orders) {
+      const key = String(o.ticketId);
+      if (!byTicket[key]) byTicket[key] = [];
+      byTicket[key].push(o);
+    }
+
+    const payload = tickets.map((t) => ({
+      ...t,
+      orders: byTicket[String(t._id)] || [],
+    }));
+
+    res.json({ tickets: payload });
+  } catch (error) {
+    next(error);
+  }
+};

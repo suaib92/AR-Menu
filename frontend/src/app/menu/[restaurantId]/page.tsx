@@ -2,7 +2,7 @@
 
 import { useState, Suspense, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronUp, ShoppingBag, Info, ArrowLeft, X, CheckCircle2, Clock, ChefHat, Truck, Receipt, QrCode, Lock, RefreshCw } from 'lucide-react';
+import { ChevronUp, ShoppingBag, Info, ArrowLeft, X, CheckCircle2, Clock, ChefHat, Truck, Receipt, QrCode, Lock, RefreshCw, RotateCcw, Plus } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import toast from 'react-hot-toast';
@@ -58,20 +58,26 @@ function CustomerMenuContent() {
   const [isLoadingMenu, setIsLoadingMenu] = useState(true);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-  const [orderHistory, setOrderHistory] = useState<any[]>([]);
   const [orderPlaced, setOrderPlaced] = useState(false);
   const [activeItem, setActiveItem] = useState<any | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [selectedVariant, setSelectedVariant] = useState<any | null>(null);
   const [activeCategory, setActiveCategory] = useState<string>('All');
-  
+
   // User Details for Checkout
   const [customerName, setCustomerName] = useState('');
   const [customerTable, setCustomerTable] = useState('');
   // Once a ticket is created, name + table are locked to that ticket.
   // "Switch table" unlocks the table field (a new ticket will be created).
   const [isLocked, setIsLocked] = useState(false);
+
+  // Multi-ticket state. A device may have created/joined many tickets across
+  // different tables and sessions. `currentTicket` is the one the cart is
+  // actively adding to (derived from `arMenuCurrentTicket` + the latest fetch).
+  const [userTickets, setUserTickets] = useState<Array<ITicket & { orders: IOrder[] }>>([]);
   const [currentTicket, setCurrentTicket] = useState<ITicket | null>(null);
+  // The ticket currently shown in the per-ticket UPI modal (null = closed).
+  const [payingTicket, setPayingTicket] = useState<ITicket & { orders: IOrder[] } | null>(null);
   
   // Theme state
   const [primaryColor, setPrimaryColor] = useState('#8b5cf6'); // Default purple
@@ -175,28 +181,62 @@ function CustomerMenuContent() {
         }
       }
 
-      // Restore ticket from localStorage
-      const savedTicketId = localStorage.getItem('arMenuTicket');
-      if (savedTicketId) {
+      // --- Multi-ticket migration + restore ---
+      // Old single-ticket key (arMenuTicket) is migrated once into the new
+      // array (arMenuTickets) + pointer (arMenuCurrentTicket), then ignored.
+      const oldSingle = localStorage.getItem('arMenuTicket');
+      if (oldSingle && !localStorage.getItem('arMenuTickets')) {
         try {
-          const tRes = await fetch(`${apiUrl}/tickets/${savedTicketId}`);
-          if (tRes.ok) {
-            const tData = await tRes.json();
-            if (tData.ticket && tData.ticket.status === 'open') {
-              setCurrentTicket(tData.ticket);
-              setIsLocked(true);
-              if (tData.ticket.primaryName) setCustomerName(tData.ticket.primaryName);
-              if (tData.ticket.tableNumber) setCustomerTable(tData.ticket.tableNumber);
-            } else {
-              // Ticket is closed or gone — clear it
-              localStorage.removeItem('arMenuTicket');
-            }
-          } else {
-            localStorage.removeItem('arMenuTicket');
-          }
-        } catch (e) {
-          console.error('Failed to restore ticket', e);
+          const list = JSON.parse(localStorage.getItem('arMenuTickets') || '[]');
+          if (!list.includes(oldSingle)) list.push(oldSingle);
+          localStorage.setItem('arMenuTickets', JSON.stringify(list));
+          localStorage.setItem('arMenuCurrentTicket', oldSingle);
+        } catch {
+          /* ignore */
         }
+        localStorage.removeItem('arMenuTicket');
+      }
+
+      // Pull every ticket this session has ever created/joined. This is the
+      // single source of truth — survives localStorage wipes and shows the
+      // user their full bill history across all tables they've been on.
+      const sessionId = getOrCreateSessionId();
+      try {
+        const tRes = await fetch(`${apiUrl}/tickets/by-session/${sessionId}`);
+        if (tRes.ok) {
+          const tData = await tRes.json();
+          const tickets: Array<ITicket & { orders: IOrder[] }> = tData.tickets || [];
+          setUserTickets(tickets);
+
+          // Persist the discovered ids so other tabs/devices on the same
+          // session can be reconciled even if the network drops.
+          localStorage.setItem(
+            'arMenuTickets',
+            JSON.stringify(tickets.map((t) => t._id))
+          );
+
+          // Pick the most recent open ticket as current; if none, fall back
+          // to whatever the user previously selected; otherwise null (fresh).
+          const storedCurrent = localStorage.getItem('arMenuCurrentTicket');
+          const matched =
+            (storedCurrent && tickets.find((t) => t._id === storedCurrent)) || null;
+          const mostRecentOpen = tickets.find((t) => t.status === 'open') || null;
+          const nextCurrent =
+            (matched && matched.status === 'open' ? matched : null) ||
+            mostRecentOpen;
+          if (nextCurrent) {
+            setCurrentTicket(nextCurrent);
+            setIsLocked(true);
+            localStorage.setItem('arMenuCurrentTicket', nextCurrent._id);
+            if (nextCurrent.primaryName) setCustomerName(nextCurrent.primaryName);
+            if (nextCurrent.tableNumber) setCustomerTable(nextCurrent.tableNumber);
+          } else {
+            // No open ticket — clear pointer so the cart is unlocked.
+            localStorage.removeItem('arMenuCurrentTicket');
+          }
+        }
+      } catch (e) {
+        console.error('Failed to fetch session tickets', e);
       }
 
       // Fetch Menu Items
@@ -255,53 +295,57 @@ function CustomerMenuContent() {
     }
   }, [activeItem?._id]);
 
-  // Fetch Order History Live Polling — ticket-aware
-  const fetchOrderHistory = async () => {
+  // Fetch user tickets (multi-ticket history) — single session lookup
+  const fetchUserTickets = async () => {
     try {
       const apiUrl = getApiUrl();
-      const currentRestaurantId = getCurrentRestaurantId();
+      const sessionId = getOrCreateSessionId();
+      const res = await fetch(`${apiUrl}/tickets/by-session/${sessionId}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const tickets: Array<ITicket & { orders: IOrder[] }> = data.tickets || [];
+      setUserTickets(tickets);
+      localStorage.setItem(
+        'arMenuTickets',
+        JSON.stringify(tickets.map((t) => t._id))
+      );
 
-      // Prefer the active ticket (modern flow). Fall back to name+table
-      // (legacy orders without a ticketId) so old data still shows.
-      const ticketId = currentTicket?._id || localStorage.getItem('arMenuTicket');
-      if (ticketId) {
-        const res = await fetch(`${apiUrl}/tickets/${ticketId}`);
-        if (res.ok) {
-          const data = await res.json();
-          setOrderHistory(data.orders || []);
-          // If the ticket was closed server-side, refresh local lock state
-          if (data.ticket && data.ticket.status === 'closed') {
-            setIsLocked(false);
-            setCurrentTicket(null);
-            localStorage.removeItem('arMenuTicket');
-          } else if (data.ticket) {
-            setCurrentTicket(data.ticket);
-          }
-          return;
+      // Refresh the current ticket in case its total/status changed server-side
+      const storedCurrent = localStorage.getItem('arMenuCurrentTicket');
+      const matched = (storedCurrent && tickets.find((t) => t._id === storedCurrent)) || null;
+      if (matched) {
+        setCurrentTicket(matched);
+        if (matched.status === 'closed') {
+          // Auto-unlock if the current ticket was closed while we were away
+          setIsLocked(false);
+          localStorage.removeItem('arMenuCurrentTicket');
         }
-      }
-
-      // Legacy fallback
-      if (customerName && customerTable) {
-        const url = `${apiUrl}/orders/public/${currentRestaurantId}?name=${encodeURIComponent(customerName)}&table=${encodeURIComponent(customerTable)}`;
-        const res = await fetch(url);
-        if (res.ok) {
-          setOrderHistory(await res.json());
+      } else {
+        // Our current ticket no longer exists (e.g. server cleanup) — pick
+        // the most recent open one, otherwise null.
+        const mostRecentOpen = tickets.find((t) => t.status === 'open') || null;
+        if (mostRecentOpen) {
+          setCurrentTicket(mostRecentOpen);
+          setIsLocked(true);
+          localStorage.setItem('arMenuCurrentTicket', mostRecentOpen._id);
+        } else {
+          setCurrentTicket(null);
+          setIsLocked(false);
         }
       }
     } catch (e) {
-      console.error("Failed to fetch history", e);
+      console.error('Failed to fetch user tickets', e);
     }
   };
 
   useEffect(() => {
     if (isHistoryOpen) {
-      fetchOrderHistory();
-      const interval = setInterval(fetchOrderHistory, 5000); // Poll every 5s
+      fetchUserTickets();
+      const interval = setInterval(fetchUserTickets, 5000); // Poll every 5s
       return () => clearInterval(interval);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isHistoryOpen, customerName, customerTable, currentTicket?._id]);
+  }, [isHistoryOpen]);
 
   // Helper to parse price (e.g., '₹599' -> 599)
   const calculateTotal = () => {
@@ -313,6 +357,13 @@ function CustomerMenuContent() {
 
   // Total of the current ticket (everything already ordered + this cart)
   const ticketGrandTotal = (currentTicket?.totalAmount ?? 0) + calculateTotal();
+
+  // How many of the user's tickets are waiting for the customer to pay
+  const pendingBillCount = userTickets.filter((t) =>
+    t.orders.some(
+      (o) => o.status === 'payment_requested' || o.status === 'payment_verifying'
+    )
+  ).length;
 
   const handleCheckout = async () => {
     if (!customerName.trim() || !customerTable.trim()) {
@@ -345,11 +396,18 @@ function CustomerMenuContent() {
 
       const newOrder = await res.json();
 
-      // Persist the ticket id so subsequent orders append to the same bill
+      // Persist the ticket id so subsequent orders append to the same bill.
       if (newOrder.ticketId) {
-        localStorage.setItem('arMenuTicket', newOrder.ticketId);
-        // Optimistic lock + refresh the ticket
+        // Add to the user's ticket list (no-op if already there)
+        const list = readTicketList();
+        if (!list.includes(newOrder.ticketId)) {
+          list.push(newOrder.ticketId);
+          writeTicketList(list);
+        }
+        localStorage.setItem('arMenuCurrentTicket', newOrder.ticketId);
         setIsLocked(true);
+
+        // Optimistic refresh of the current ticket
         try {
           const tRes = await fetch(`${apiUrl}/tickets/${newOrder.ticketId}`);
           if (tRes.ok) {
@@ -357,6 +415,9 @@ function CustomerMenuContent() {
             if (tData.ticket) setCurrentTicket(tData.ticket);
           }
         } catch { /* noop */ }
+
+        // Refresh the full ticket list so "Your Bill" reflects the new one
+        fetchUserTickets();
       }
 
       // Save name + table for future
@@ -380,16 +441,18 @@ function CustomerMenuContent() {
     }
   };
 
-  // "Switch table" — unlock the table field and start a new ticket on next order
+  // "Switch table" — unlock the table field, start a new ticket on next order.
+  // The previous ticket stays in the user's history (arMenuTickets) so it
+  // can still be paid/viewed from "Your Bill".
   const handleSwitchTable = async () => {
     const ok = await confirm({
       title: 'Start a new bill on a different table?',
-      description: `Your current bill at Table ${currentTicket?.tableNumber || customerTable} will stay as-is. The next order will be billed separately on the new table.`,
+      description: `Your current bill at Table ${currentTicket?.tableNumber || customerTable} will stay in your history. The next order will be billed separately on the new table.`,
       confirmText: 'Switch table',
       cancelText: 'Stay here',
     });
     if (!ok) return;
-    localStorage.removeItem('arMenuTicket');
+    localStorage.removeItem('arMenuCurrentTicket');
     setCurrentTicket(null);
     setIsLocked(false);
     setCustomerTable('');
@@ -397,18 +460,38 @@ function CustomerMenuContent() {
     toast.success('Table cleared. Add items again to start a new bill.');
   };
 
+  // "Resume" — make an older ticket the one the cart is adding to. Locks
+  // the form fields back to that ticket's name + table.
+  const handleResumeTicket = (ticketId: string) => {
+    const ticket = userTickets.find((t) => t._id === ticketId);
+    if (!ticket) return;
+    if (ticket.status === 'closed') {
+      toast.error('This bill is already settled.');
+      return;
+    }
+    localStorage.setItem('arMenuCurrentTicket', ticket._id);
+    setCurrentTicket(ticket);
+    setIsLocked(true);
+    setCustomerName(ticket.primaryName);
+    setCustomerTable(ticket.tableNumber);
+    setIsHistoryOpen(false);
+    setIsCartOpen(true);
+    toast.success(`Resumed Table ${ticket.tableNumber} bill`);
+  };
+
   // "Sign out" — clear all local identity and start fresh
   const handleSignOut = async () => {
     const ok = await confirm({
       title: 'Clear your local session?',
-      description: 'Your name and table will be removed from this device. Existing orders are not affected.',
+      description: 'Your name, cart, and ticket pointers will be removed from this device. Existing orders are not affected.',
       confirmText: 'Clear',
       destructive: true,
     });
     if (!ok) return;
     localStorage.removeItem('arMenuCustomer');
     localStorage.removeItem('arMenuCart');
-    localStorage.removeItem('arMenuTicket');
+    localStorage.removeItem('arMenuTickets');
+    localStorage.removeItem('arMenuCurrentTicket');
     setCustomerName('');
     setCustomerTable('');
     setCartItems([]);
@@ -416,6 +499,20 @@ function CustomerMenuContent() {
     setCurrentTicket(null);
     setIsCartOpen(false);
     toast.success('Session cleared');
+  };
+
+  // --- localStorage helpers for the multi-ticket list ---
+  const readTicketList = (): string[] => {
+    try {
+      const raw = localStorage.getItem('arMenuTickets');
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed.filter((x) => typeof x === 'string') : [];
+    } catch {
+      return [];
+    }
+  };
+  const writeTicketList = (list: string[]) => {
+    localStorage.setItem('arMenuTickets', JSON.stringify(list));
   };
 
   // Cart Drawer JSX Element (not a component to prevent input focus loss!)
@@ -590,25 +687,25 @@ function CustomerMenuContent() {
     </AnimatePresence>
   );
 
-  // Order History JSX Element
+  // Order History JSX Element — one card per ticket, newest first
   const historyDrawerJSX = (
     <AnimatePresence>
       {isHistoryOpen && (
         <>
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             onClick={() => setIsHistoryOpen(false)}
             className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
           />
-          <motion.div 
+          <motion.div
             initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
             transition={{ type: "spring", damping: 25, stiffness: 200 }}
             className="fixed bottom-0 left-0 right-0 elegant-drawer rounded-t-[2rem] p-6 z-50 max-h-[85vh] flex flex-col"
           >
-            <div className="flex justify-between items-center mb-6">
+            <div className="flex justify-between items-center mb-2">
               <h2 className="text-2xl font-bold flex items-center gap-2">
                 <Clock className="w-6 h-6 text-purple-400" />
-                Your Bill
+                Your Bills
               </h2>
               <button
                 onClick={() => setIsHistoryOpen(false)}
@@ -617,70 +714,123 @@ function CustomerMenuContent() {
                 <X className="w-5 h-5" />
               </button>
             </div>
+            <p className="text-text-muted text-sm mb-4">
+              All your bills across tables. Tap "Pay Now" to settle any open one.
+            </p>
 
-            {/* Ticket header — shows running bill total */}
-            {currentTicket && (
-              <div className="bg-purple-500/10 border border-purple-500/20 rounded-2xl p-4 mb-4 flex justify-between items-center">
-                <div>
-                  <div className="text-xs text-purple-300 font-semibold uppercase tracking-wider mb-0.5">
-                    Table {currentTicket.tableNumber}
-                  </div>
-                  <div className="text-white font-bold">
-                    {orderHistory.length} order{orderHistory.length === 1 ? '' : 's'} so far
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="text-xs text-purple-300 font-semibold uppercase tracking-wider mb-0.5">Bill total</div>
-                  <div className="text-2xl font-bold text-white">₹{currentTicket.totalAmount}</div>
-                </div>
-              </div>
-            )}
-
-            <div className="flex-1 overflow-y-auto space-y-4">
-              {orderHistory.length === 0 ? (
+            <div className="flex-1 overflow-y-auto space-y-4 -mx-1 px-1">
+              {userTickets.length === 0 ? (
                 <div className="text-gray-500 py-12 text-center font-medium">
-                  {isLocked ? 'Your bill is empty so far.' : 'No previous orders found for you.'}
+                  No bills yet. Place an order to start one.
                 </div>
               ) : (
-                orderHistory.map(order => (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-                    key={order._id}
-                    className="elegant-panel p-5 rounded-2xl relative overflow-hidden"
-                  >
-                    {/* Minimal status indicator line */}
-                    {order.status === 'preparing' && <div className="absolute top-0 left-0 w-1 h-full bg-yellow-500" />}
-                    {order.status === 'delivering' && <div className="absolute top-0 left-0 w-1 h-full bg-blue-500" />}
-                    {order.status === 'pending' && <div className="absolute top-0 left-0 w-1 h-full bg-purple-500" />}
-                    {order.status === 'completed' && <div className="absolute top-0 left-0 w-1 h-full bg-green-500" />}
-                    {order.status === 'paid' && <div className="absolute top-0 left-0 w-1 h-full bg-gray-600" />}
-                    {order.status === 'payment_requested' && <div className="absolute top-0 left-0 w-1 h-full bg-orange-500" />}
-                    {order.status === 'payment_verifying' && <div className="absolute top-0 left-0 w-1 h-full bg-cyan-500" />}
+                userTickets.map(ticket => {
+                  const isCurrent = currentTicket?._id === ticket._id && ticket.status === 'open';
+                  const isClosed = ticket.status === 'closed';
+                  const hasPayable = ticket.orders.some(
+                    (o) => o.status === 'payment_requested' || o.status === 'payment_verifying'
+                  );
+                  const latestOrder = ticket.orders[ticket.orders.length - 1];
+                  const orderCount = ticket.orders.length;
+                  const itemCount = ticket.orders.reduce(
+                    (sum, o) => sum + (o.items?.length || 0),
+                    0
+                  );
+                  const lastStatus = latestOrder?.status;
 
-                    <div className="flex justify-between items-start mb-4 pl-3">
-                      <div>
-                        <div className="font-bold flex items-center gap-2 mb-1 text-sm">
-                          {order.status === 'pending' && <><span className="text-purple-400">Kitchen Received</span></>}
-                          {order.status === 'preparing' && <><span className="text-yellow-400">Preparing...</span></>}
-                          {order.status === 'delivering' && <><span className="text-blue-400">On the Way!</span></>}
-                          {order.status === 'completed' && <><span className="text-green-400">Served</span></>}
-                          {order.status === 'paid' && <><span className="text-gray-400">Bill Settled</span></>}
-                          {order.status === 'payment_requested' && <><span className="text-orange-400">Bill Sent</span></>}
-                          {order.status === 'payment_verifying' && <><span className="text-cyan-400">Verifying Payment</span></>}
+                  return (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      key={ticket._id}
+                      className={`elegant-panel rounded-2xl relative overflow-hidden ${
+                        isClosed ? 'opacity-70' : ''
+                      }`}
+                    >
+                      {/* Status indicator line */}
+                      <div
+                        className={`absolute top-0 left-0 w-1 h-full ${
+                          lastStatus === 'preparing' ? 'bg-yellow-500' :
+                          lastStatus === 'delivering' ? 'bg-blue-500' :
+                          lastStatus === 'pending' ? 'bg-purple-500' :
+                          lastStatus === 'completed' ? 'bg-green-500' :
+                          lastStatus === 'paid' ? 'bg-gray-600' :
+                          lastStatus === 'payment_requested' ? 'bg-orange-500' :
+                          lastStatus === 'payment_verifying' ? 'bg-cyan-500' :
+                          'bg-white/10'
+                        }`}
+                      />
+
+                      <div className="p-5 pl-6">
+                        <div className="flex justify-between items-start mb-2">
+                          <div>
+                            <div className="flex items-center gap-2 mb-0.5">
+                              <h3 className="text-lg font-bold">Table {ticket.tableNumber}</h3>
+                              {isCurrent && (
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-purple-300 bg-purple-500/15 border border-purple-500/30 px-2 py-0.5 rounded-full">
+                                  Current
+                                </span>
+                              )}
+                              {isClosed && (
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 bg-white/5 border border-white/10 px-2 py-0.5 rounded-full">
+                                  Settled
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-text-muted text-xs">
+                              {ticket.primaryName} • {orderCount} order{orderCount === 1 ? '' : 's'} • {itemCount} item{itemCount === 1 ? '' : 's'}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-[11px] text-text-subtle uppercase tracking-wider font-semibold">Bill</div>
+                            <div className="text-xl font-bold">₹{ticket.totalAmount}</div>
+                          </div>
                         </div>
-                        <span className="text-gray-500 text-xs font-medium">Ordered at {new Date(order.createdAt).toLocaleTimeString()}</span>
+
+                        {/* Latest status line */}
+                        {latestOrder && !isClosed && (
+                          <div className="text-xs font-semibold mb-3 flex items-center gap-1.5">
+                            {lastStatus === 'pending' && <span className="text-purple-400">● Kitchen received</span>}
+                            {lastStatus === 'preparing' && <span className="text-yellow-400">● Preparing</span>}
+                            {lastStatus === 'delivering' && <span className="text-blue-400">● On the way</span>}
+                            {lastStatus === 'completed' && <span className="text-green-400">● Served</span>}
+                            {lastStatus === 'payment_requested' && <span className="text-orange-400 animate-pulse">● Bill sent — pay now</span>}
+                            {lastStatus === 'payment_verifying' && <span className="text-cyan-400 animate-pulse">● Verifying payment</span>}
+                            <span className="text-text-subtle">· last update {new Date(latestOrder.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          </div>
+                        )}
+
+                        {/* Per-ticket actions */}
+                        <div className="flex gap-2 mt-3">
+                          {!isClosed && hasPayable && (
+                            <button
+                              onClick={() => handlePayTicket(ticket)}
+                              className="flex-1 bg-orange-500/15 border border-orange-500/40 text-orange-300 font-semibold rounded-xl py-2.5 flex items-center justify-center gap-2 hover:bg-orange-500/25 transition-colors text-sm"
+                            >
+                              <Receipt className="w-4 h-4" />
+                              Pay Now · ₹{ticket.totalAmount}
+                            </button>
+                          )}
+                          {!isClosed && !isCurrent && (
+                            <button
+                              onClick={() => handleResumeTicket(ticket._id)}
+                              className="flex-1 bg-white/5 border border-white/10 text-white font-semibold rounded-xl py-2.5 flex items-center justify-center gap-2 hover:bg-white/10 transition-colors text-sm"
+                            >
+                              <RotateCcw className="w-4 h-4" />
+                              Add more items
+                            </button>
+                          )}
+                          {isCurrent && !isClosed && (
+                            <div className="flex-1 bg-purple-500/10 border border-purple-500/20 text-purple-300 font-medium rounded-xl py-2.5 flex items-center justify-center gap-2 text-sm">
+                              <Plus className="w-4 h-4" />
+                              Cart adds here
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      <span className="font-bold text-lg text-white">₹{order.totalAmount}</span>
-                    </div>
-                    <div className="space-y-1.5 pl-3">
-                      {order.items.map((item: any, i: number) => (
-                        <div key={i} className="text-sm text-gray-400">
-                          {item.quantity && item.quantity > 1 ? `${item.quantity}× ` : ''}{item.name}
-                        </div>
-                      ))}
-                    </div>
-                  </motion.div>
-                ))
+                    </motion.div>
+                  );
+                })
               )}
             </div>
           </motion.div>
@@ -689,144 +839,141 @@ function CustomerMenuContent() {
     </AnimatePresence>
   );
 
-  // Calculate Payment Requested Details — ticket-aware
-  const paymentRequestedOrders = orderHistory.filter(o => o.status === 'payment_requested');
-  const paymentVerifyingOrders = orderHistory.filter(o => o.status === 'payment_verifying');
-  const activePaymentOrders = [...paymentRequestedOrders, ...paymentVerifyingOrders];
-  const hasPaymentRequest = activePaymentOrders.length > 0;
-
-  const isVerifying = paymentVerifyingOrders.length > 0;
-  // Use the ticket's running total (entire bill for the table) when available.
-  const paymentGrandTotal = currentTicket
-    ? currentTicket.totalAmount
-    : activePaymentOrders.reduce((sum, o) => {
-        const price = typeof o.totalAmount === 'number' ? o.totalAmount : parseInt(o.totalAmount.toString().replace(/[^0-9]/g, ''));
-        return sum + price;
-      }, 0);
-
-  // UPI Link Generation - fetched server-side for security
-  const [upiLink, setUpiLink] = useState('');
+  // --- Per-ticket UPI flow (replaces the old global one) ---
+  const [payingUpiLink, setPayingUpiLink] = useState('');
   const [isGeneratingUpi, setIsGeneratingUpi] = useState(false);
 
-  useEffect(() => {
-    if (!hasPaymentRequest) return;
-    const generateUpiLink = async () => {
-      setIsGeneratingUpi(true);
-      try {
-        const apiUrl = getApiUrl();
-        const pathParts = window.location.pathname.split('/');
-        const currentRestaurantId = pathParts[pathParts.length - 1];
-        const res = await fetch(`${apiUrl}/payment/upi-link`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            restaurantId: currentRestaurantId,
-            amount: paymentGrandTotal,
-            customerName,
-            tableNumber: customerTable,
-          }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setUpiLink(data.upiLink);
-        }
-      } catch (e) {
-        console.error('Failed to generate UPI link', e);
-      } finally {
-        setIsGeneratingUpi(false);
-      }
-    };
-    generateUpiLink();
-  }, [hasPaymentRequest, paymentGrandTotal]);
-
-  const handleMarkAsPaid = async () => {
+  const handlePayTicket = async (ticket: ITicket & { orders: IOrder[] }) => {
+    setPayingTicket(ticket);
+    setPayingUpiLink('');
+    setIsGeneratingUpi(true);
     try {
       const apiUrl = getApiUrl();
-      // Ticket-aware: mark every order on the current ticket as payment_verifying,
-      // not just the ones already in payment_requested state.
-      const ticketId = currentTicket?._id || localStorage.getItem('arMenuTicket');
-      const ordersToMark = ticketId
-        ? orderHistory
-        : paymentRequestedOrders;
-      for (const order of ordersToMark) {
-        await fetch(`${apiUrl}/orders/${order._id}/status`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: 'payment_verifying' })
-        });
+      const currentRestaurantId = getCurrentRestaurantId();
+      const res = await fetch(`${apiUrl}/payment/upi-link`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          restaurantId: currentRestaurantId,
+          amount: ticket.totalAmount,
+          customerName: ticket.primaryName,
+          tableNumber: ticket.tableNumber,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPayingUpiLink(data.upiLink);
       }
-      fetchOrderHistory(); // Refresh the list
     } catch (e) {
-      console.error("Failed to mark as paid", e);
+      console.error('Failed to generate UPI link', e);
+    } finally {
+      setIsGeneratingUpi(false);
     }
   };
 
+  const handleMarkTicketPaid = async () => {
+    if (!payingTicket) return;
+    try {
+      const apiUrl = getApiUrl();
+      const ordersToMark = payingTicket.orders.filter((o) => o.status !== 'paid');
+      await Promise.all(
+        ordersToMark.map((order) =>
+          fetch(`${apiUrl}/orders/${order._id}/status`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'payment_verifying' }),
+          })
+        )
+      );
+      // Close the ticket so the table can re-open later
+      await fetch(`${apiUrl}/tickets/${payingTicket._id}/close`, { method: 'POST' });
+      toast.success('Marked as paid. The restaurant will confirm shortly.');
+      setPayingTicket(null);
+      setPayingUpiLink('');
+      fetchUserTickets();
+    } catch (e) {
+      console.error('Failed to mark as paid', e);
+      toast.error('Could not mark as paid. Please try again.');
+    }
+  };
+
+  // The paying ticket in "verifying" state shows a spinner, otherwise a UPI link
+  const payingIsVerifying = !!payingTicket && payingTicket.orders.some((o) => o.status === 'payment_verifying');
+
   const paymentModalJSX = (
     <AnimatePresence>
-      {hasPaymentRequest && (
+      {payingTicket && (
         <>
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            onClick={() => { setPayingTicket(null); setPayingUpiLink(''); }}
             className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100]"
           />
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.95, y: 10 }} 
-            animate={{ opacity: 1, scale: 1, y: 0 }} 
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 10 }}
             className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90%] max-w-sm elegant-panel text-white rounded-3xl p-8 z-[101] shadow-2xl flex flex-col items-center text-center"
           >
             <div className="w-16 h-16 bg-blue-500/10 text-blue-400 rounded-full flex items-center justify-center mb-6">
               <Receipt className="w-8 h-8" />
             </div>
-            
-            {isVerifying ? (
+
+            {payingIsVerifying ? (
               <>
                 <h2 className="text-2xl font-bold mb-4 tracking-tight text-white">Verifying Payment...</h2>
                 <p className="text-gray-400 mb-8 font-medium">Please wait while the restaurant confirms your payment.</p>
                 <div className="flex justify-center mb-6">
-                  <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                  <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
                 </div>
               </>
             ) : (
               <>
-                <h2 className="text-2xl font-bold mb-1 tracking-tight">Bill Generated</h2>
-                <p className="text-gray-400 mb-6 font-medium">Table {customerTable} • {customerName}</p>
+                <h2 className="text-2xl font-bold mb-1 tracking-tight">Pay your bill</h2>
+                <p className="text-gray-400 mb-6 font-medium">
+                  Table {payingTicket.tableNumber} • {payingTicket.primaryName}
+                </p>
 
-                {/* Order Items Breakdown — show all items on the ticket */}
                 <div className="w-full bg-[#111] rounded-2xl p-5 mb-6 border border-white/5 max-h-[25vh] overflow-y-auto">
-                  {(currentTicket ? orderHistory : activePaymentOrders).map(order => (
-                    <div key={order._id} className="space-y-3">
-                      {order.items.map((item: any, i: number) => (
-                        <div key={i} className="flex justify-between items-center text-sm">
-                          <span className="text-gray-300">
-                            {item.quantity && item.quantity > 1 ? `${item.quantity}× ` : ''}{item.name}
-                          </span>
-                          <span className="text-gray-400">{item.price}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ))}
-                  <div className="border-t border-white/10 mt-4 pt-4 flex justify-between items-center font-bold">
+                  {payingTicket.orders.flatMap((order) =>
+                    order.items.map((item: any, i: number) => (
+                      <div key={`${order._id}-${i}`} className="flex justify-between items-center text-sm py-0.5">
+                        <span className="text-gray-300">
+                          {item.quantity && item.quantity > 1 ? `${item.quantity}× ` : ''}{item.name}
+                        </span>
+                        <span className="text-gray-400">{item.price}</span>
+                      </div>
+                    ))
+                  )}
+                  <div className="border-t border-white/10 mt-3 pt-3 flex justify-between items-center font-bold">
                     <span className="text-gray-300">Total</span>
-                    <span className="text-white text-lg">₹{paymentGrandTotal}</span>
+                    <span className="text-white text-lg">₹{payingTicket.totalAmount}</span>
                   </div>
                 </div>
 
-                <motion.a 
+                {payingUpiLink ? (
+                  <motion.a
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    href={payingUpiLink}
+                    className="w-full bg-white text-black font-bold text-lg rounded-xl py-4 flex items-center justify-center gap-3 transition-colors mb-3"
+                  >
+                    <QrCode className="w-5 h-5" />
+                    Pay via UPI App
+                  </motion.a>
+                ) : (
+                  <div className="w-full bg-white/10 text-white/60 font-medium rounded-xl py-4 flex items-center justify-center gap-2 mb-3">
+                    <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                    {isGeneratingUpi ? 'Preparing payment link…' : 'Payment link unavailable'}
+                  </div>
+                )}
+
+                <motion.button
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
-                  href={upiLink}
-                  className="w-full bg-white text-black font-bold text-lg rounded-xl py-4 flex items-center justify-center gap-3 transition-colors mb-3"
-                >
-                  <QrCode className="w-5 h-5" />
-                  Pay via UPI App
-                </motion.a>
-                
-                <motion.button 
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={handleMarkAsPaid}
-                  className="w-full bg-[#111] border border-white/10 text-white font-bold text-lg rounded-xl py-4 flex items-center justify-center transition-colors"
+                  onClick={handleMarkTicketPaid}
+                  disabled={!payingUpiLink}
+                  className="w-full bg-[#111] border border-white/10 text-white font-bold text-lg rounded-xl py-4 flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   I have paid
                 </motion.button>
@@ -850,12 +997,21 @@ function CustomerMenuContent() {
           </div>
           
           <div className="flex gap-4">
-            <motion.button 
+            <motion.button
               whileTap={{ scale: 0.95 }}
               onClick={() => setIsHistoryOpen(true)}
-              className="w-11 h-11 rounded-full flex items-center justify-center bg-[#1a1a1a] border border-white/10 hover:bg-[#222] transition-colors"
+              aria-label="View your bills"
+              className="w-11 h-11 rounded-full flex items-center justify-center bg-[#1a1a1a] border border-white/10 hover:bg-[#222] transition-colors relative"
             >
               <Clock className="w-5 h-5 text-gray-300" />
+              {pendingBillCount > 0 && (
+                <span
+                  className="absolute -top-1.5 -right-1.5 min-w-[20px] h-5 px-1.5 rounded-full bg-orange-500 text-white text-[10px] font-bold flex items-center justify-center border-2 border-[#0a0a0a]"
+                  aria-label={`${pendingBillCount} bill${pendingBillCount === 1 ? '' : 's'} awaiting payment`}
+                >
+                  {pendingBillCount}
+                </span>
+              )}
             </motion.button>
             <motion.button 
               whileTap={{ scale: 0.95 }}

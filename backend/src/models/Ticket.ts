@@ -46,6 +46,7 @@ const TicketSchema: Schema = new Schema(
       type: String,
       trim: true,
       maxlength: 128,
+      index: true,
     },
     closedAt: {
       type: Date,
