@@ -48,10 +48,16 @@ export const trackView = async (req: Request, res: Response, next: NextFunction)
       throw new Error('viewType is required');
     }
 
+    // Validate ObjectId-shaped ids so an invalid beacon returns 200 silently
+    // instead of bubbling a CastError to the global error handler.
+    const isObjectId = (s: string) => /^[a-fA-F0-9]{24}$/.test(s);
+    const rid = restaurantId && isObjectId(restaurantId) ? restaurantId : undefined;
+    const mid = menuItemId && isObjectId(menuItemId) ? menuItemId : undefined;
+
     await PageView.create({
-      restaurantId: restaurantId ? restaurantId : undefined,
+      restaurantId: rid,
       viewType,
-      menuItemId: menuItemId ? menuItemId : undefined,
+      menuItemId: mid,
       sessionId: sessionId ? String(sessionId).slice(0, 128) : undefined,
       userAgent: (req.headers['user-agent'] || '').toString().slice(0, 256),
     });
