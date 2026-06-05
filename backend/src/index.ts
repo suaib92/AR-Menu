@@ -23,6 +23,12 @@ const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:3000,http:
   .map((o) => o.trim())
   .filter(Boolean);
 
+const isOriginAllowed = (origin: string): boolean => {
+  if (allowedOrigins.includes(origin)) return true;
+  if (/^https:\/\/ar-menu-[a-z0-9-]+\.vercel\.app$/i.test(origin)) return true;
+  return false;
+};
+
 app.use(
   helmet({
     crossOriginResourcePolicy: { policy: 'cross-origin' },
@@ -33,7 +39,7 @@ app.use(
   cors({
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) return callback(null, true);
+      if (isOriginAllowed(origin)) return callback(null, true);
       return callback(null, false);
     },
     credentials: true,
